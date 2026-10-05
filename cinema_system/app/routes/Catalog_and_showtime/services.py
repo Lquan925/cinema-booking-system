@@ -39,9 +39,38 @@ class CatalogRepository:
             for cinema in cinemas
         ]
 
-    def list_showtimes(self):
+    def list_showtimes(
+        self,
+        start_time=None,
+        end_time=None,
+        movie_id=None,
+        cinema_id=None,
+    ):
+        query = select(Showtime)
+
+        if start_time is not None:
+            query = query.where(
+                Showtime.start_time >= start_time,
+                Showtime.start_time < end_time,
+            )
+
+        if movie_id is not None:
+            query = query.where(
+                Showtime.movie_id == movie_id
+            )
+
+        if cinema_id is not None:
+            query = query.join(
+                Room, Showtime.room_id == Room.room_id
+            ).where(
+                Room.cinema_id == cinema_id
+            )
+
         showtimes = db.session.execute(
-            select(Showtime).order_by(Showtime.showtime_id)
+            query.order_by(
+                Showtime.start_time,
+                Showtime.showtime_id,
+            )
         ).scalars().all()
 
         return [
@@ -180,8 +209,42 @@ def list_movies():
 def list_cinemas():
     return repository.list_cinemas()
 
-def list_showtimes():
-    return repository.list_showtimes()
+def list_showtimes(date=None, movie_id=None, cinema_id=None):
+    start_time = None
+    end_time = None
+
+    if date is not None:
+        try:
+            parsed_date = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("date phải có dạng YYYY-MM-DD")
+
+        if parsed_date.strftime("%Y-%m-%d") != date:
+            raise ValueError("date phải có dạng YYYY-MM-DD")
+
+        start_time = parsed_date
+        end_time = start_time + timedelta(days=1)
+
+    def parse_id(value, field):
+        if value is None:
+            return None
+
+        if not value.isascii() or not value.isdigit():
+            raise ValueError(f"{field} phải là số nguyên dương")
+
+        parsed_id = int(value)
+
+        if parsed_id <= 0:
+            raise ValueError(f"{field} phải là số nguyên dương")
+
+        return parsed_id
+
+    return repository.list_showtimes(
+        start_time=start_time,
+        end_time=end_time,
+        movie_id=parse_id(movie_id, "movie_id"),
+        cinema_id=parse_id(cinema_id, "cinema_id"),
+    )
 
 def add_movie(movie_data):
     title = movie_data.get("title")

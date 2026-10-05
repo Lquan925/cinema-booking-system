@@ -83,7 +83,6 @@ Sử dụng ID thực tế và thời điểm tương lai chưa có lịch trùn
 
 - Chưa tích hợp xác thực và phân quyền admin từ module User Management.
   Hiện các endpoint ghi chưa được bảo vệ.
-- GET lịch chiếu chưa có bộ lọc theo ngày, phim và rạp.
 - Chưa tách Repository khỏi file services để hoàn thiện kiến trúc **Layered Architecture**.
 - Chưa bổ sung unit tests và đặc tả OpenAPI cho module.
 - Cần thống nhất cơ chế khóa với module Booking để xử lý đặt vé đồng thời với xóa suất chiếu.

@@ -15,7 +15,15 @@ def list_cinemas():
 
 @catalog_bp.route('/showtimes', methods=['GET'])
 def list_showtimes():
-    showtimes = services.list_showtimes()
+    try:
+        showtimes = services.list_showtimes(
+            date=request.args.get("date"),
+            movie_id=request.args.get("movie_id"),
+            cinema_id=request.args.get("cinema_id"),
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
     return jsonify({"data": showtimes}), 200
 
 @catalog_bp.route('/admin/movies', methods=['POST'])
