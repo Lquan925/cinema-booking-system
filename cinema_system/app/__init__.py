@@ -26,4 +26,8 @@ def create_app():
     def index():
         return {"status": "success", "message": "Cinema Booking API is running!"}
 
+    # Đăng ký Blueprint cho các route
+    from app.routes.Catalog_and_showtime.routes import catalog_bp
+    app.register_blueprint(catalog_bp)
+
     return app
