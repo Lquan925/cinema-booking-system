@@ -18,12 +18,15 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
-
     # Đăng ký Models để Flask-Migrate nhận diện
     from app import models
 
     @app.route('/')
     def index():
         return {"status": "success", "message": "Cinema Booking API is running!"}
-
+    
+    # Đăng ký Blueprint cho route
+    
+    from app.routes.User_management.routes import user_bp
+    app.register_blueprint(user_bp)
     return app
