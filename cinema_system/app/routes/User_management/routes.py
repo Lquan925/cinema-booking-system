@@ -1,48 +1,15 @@
-from functools import wraps
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from . import services
 
 user_bp = Blueprint('users_management', __name__, url_prefix='/api')
 
-def token_required(f):
-    """Decorator kiểm tra token xác thực người dùng"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({
-                "status": "error",
-                "message": "Vui lòng cung cấp token đăng nhập (Header 'Authorization: Bearer <token>')."
-            }), 401
-
-        token = auth_header.split(' ', 1)[1].strip()
-        payload = services.verify_token(token)
-        if not payload:
-            return jsonify({
-                "status": "error",
-                "message": "Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại."
-            }), 401
-
-        return f(payload, *args, **kwargs)
-    return decorated
-
-
-def admin_required(f):
-    """Decorator kiểm tra quyền Admin"""
-    @wraps(f)
-    def decorated(payload, *args, **kwargs):
-        if payload.get('role') != 'admin':
-            return jsonify({
-                "status": "error",
-                "message": "Từ chối truy cập: Chức năng này chỉ dành cho Admin."
-            }), 403
-        return f(payload, *args, **kwargs)
-    return decorated
-
-
-"""Register"""
+"""Các API xác thực công khai không cần token"""
 @user_bp.route('/auth/register', methods=['POST'])
 def register():
+    """
+    [Khách hàng đăng ký tài khoản]
+    Body (JSON): { "name": "...", "email": "...", "password": "..." }
+    """
     data = request.get_json() or {}
     name = data.get('name')
     email = data.get('email')
@@ -61,9 +28,14 @@ def register():
         "data": result
     }), 201
 
-"""Login"""
+
 @user_bp.route('/auth/login', methods=['POST'])
 def login():
+    """
+    [Đăng nhập hệ thống - Cấp Token]
+    Body (JSON): { "email": "...", "password": "..." }
+    Trả về token để client gửi kèm trong header: 'Authorization: Bearer <token>'
+    """
     data = request.get_json() or {}
     email = data.get('email')
     password = data.get('password')
@@ -82,33 +54,45 @@ def login():
         "user": result["user"]
     }), 200
 
-"""Profile"""
+"""Các API cần token xác thực"""
 @user_bp.route('/users/profile', methods=['GET'])
-@token_required
-def get_profile(payload):
-    user_id = payload.get('user_id')
-    user_info = services.get_user_by_id(user_id)
-    if not user_info:
+def get_profile():
+    """
+    [Xem thông tin cá nhân, điểm tích lũy & số dư ví]
+    Header: Authorization: Bearer <token>
+    (Middleware app/middleware/auth.py đã tự động giải mã token và gán vào g.current_user)
+    """
+    user = getattr(g, 'current_user', None)
+    if not user:
         return jsonify({
             "status": "error",
-            "message": "Không tìm thấy người dùng."
-        }), 404
+            "message": "Không tìm thấy phiên đăng nhập."
+        }), 401
 
     return jsonify({
         "status": "success",
-        "data": user_info
+        "data": services.user_to_dict(user)
     }), 200
 
 
 @user_bp.route('/users/profile', methods=['PUT'])
-@token_required
-def update_profile(payload):
-    user_id = payload.get('user_id')
+def update_profile():
+    """
+    [Cập nhật họ tên hoặc đổi mật khẩu]
+    Header: Authorization: Bearer <token>
+    """
+    user = getattr(g, 'current_user', None)
+    if not user:
+        return jsonify({
+            "status": "error",
+            "message": "Không tìm thấy phiên đăng nhập."
+        }), 401
+
     data = request.get_json() or {}
     name = data.get('name')
     password = data.get('password')
 
-    success, result = services.update_user_profile(user_id, name, password)
+    success, result = services.update_user_profile(user.user_id, name, password)
     if not success:
         return jsonify({
             "status": "error",
@@ -121,29 +105,38 @@ def update_profile(payload):
         "data": result
     }), 200
 
-
-"""Admin"""
+"""Các API dành riêng cho Admin"""
 @user_bp.route('/admin/users', methods=['GET'])
-@token_required
-@admin_required
-def get_admin_users(payload):
-    users = services.get_all_users()
+def get_admin_users():
+    """
+    [Admin xem danh sách toàn bộ người dùng & nhân viên]
+    Header: Authorization: Bearer <token_admin>
+    (Middleware app/middleware/auth.py tự động chặn 403 nếu role không phải ADMIN)
+    """
+    role = request.args.get('role')
+    search = request.args.get('search')
+    page = request.args.get('page')
+    per_page = request.args.get('per_page')
+
+    users, total = services.get_all_users(role=role, search=search, page=page, per_page=per_page)
     return jsonify({
         "status": "success",
-        "total": len(users),
+        "total": total,
         "data": users
     }), 200
 
 
 @user_bp.route('/admin/users', methods=['POST'])
-@token_required
-@admin_required
-def create_staff(payload):
+def create_staff():
+    """
+    [Admin cấp tài khoản mới cho nhân viên quầy]
+    Header: Authorization: Bearer <token_admin>
+    """
     data = request.get_json() or {}
     name = data.get('name')
     email = data.get('email')
     password = data.get('password')
-    role = data.get('role', 'staff')
+    role = data.get('role', 'STAFF')
 
     success, result = services.create_staff_user(name, email, password, role)
     if not success:

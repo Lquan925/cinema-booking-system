@@ -18,6 +18,11 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
+
+    # Đăng ký Middleware xác thực toàn cục
+    from app.middleware.auth import init_auth_middleware
+    init_auth_middleware(app)
+
     # Đăng ký Models để Flask-Migrate nhận diện
     from app import models
 
