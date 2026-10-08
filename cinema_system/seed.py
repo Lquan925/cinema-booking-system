@@ -149,11 +149,12 @@ with app.app_context():
     showtimes = []
 
     for movie, room, day, hour, price in showtime_data:
+        st_start = now + timedelta(days=day, hours=hour)
         showtime = Showtime(
             movie_id=movie.movie_id,
             room_id=room.room_id,
-            start_time=now + timedelta(days=day),
-            end_time=now + timedelta(minutes=movie.duration_minutes),
+            start_time=st_start,
+            end_time=st_start + timedelta(minutes=movie.duration_minutes),
             price=price
         )
         showtimes.append(showtime)

@@ -1,7 +1,0 @@
-Flask
-Flask-SQLAlchemy
-Flask-Migrate
-pymysql
-cryptography
-redis
-python-dotenv
