@@ -1,0 +1,325 @@
+openapi: 3.0.3
+info:
+  title: Catalog and Showtime API
+  description: API quản lý Danh mục Phim, Cụm Rạp và Lịch Chiếu Phim (Catalog & Showtime Module)
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api
+    description: Local Development Server
+
+tags:
+  - name: Catalog & Showtime
+    description: Quản lý danh mục phim, rạp chiếu và lịch chiếu phim
+
+paths:
+  /movies:
+    get:
+      summary: Lấy danh sách toàn bộ phim
+      tags:
+        - Catalog & Showtime
+      responses:
+        '200':
+          description: Danh sách phim
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        movie_id:
+                          type: integer
+                          example: 1
+                        title:
+                          type: string
+                          example: "Mai"
+                        description:
+                          type: string
+                          example: "Phim tâm lý tình cảm của đạo diễn Trấn Thành"
+                        duration_minutes:
+                          type: integer
+                          example: 131
+                        age_rating:
+                          type: string
+                          example: "T18"
+                        poster_url:
+                          type: string
+                          example: "https://cinema.vn/posters/mai.jpg"
+                        trailer_url:
+                          type: string
+                          example: "https://youtube.com/watch?v=sample"
+
+  /cinemas:
+    get:
+      summary: Lấy danh sách toàn bộ cụm rạp
+      tags:
+        - Catalog & Showtime
+      responses:
+        '200':
+          description: Danh sách rạp chiếu phim
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        cinema_id:
+                          type: integer
+                          example: 1
+                        name:
+                          type: string
+                          example: "Cinema Star Ba Đình"
+                        address:
+                          type: string
+                          example: "29 Liễu Giai, Ba Đình, Hà Nội"
+                        hotline:
+                          type: string
+                          example: "1900 1234"
+
+  /showtimes:
+    get:
+      summary: Tra cứu và lọc danh sách suất chiếu
+      tags:
+        - Catalog & Showtime
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Ngày xem phim (định dạng YYYY-MM-DD)
+          schema:
+            type: string
+            example: "2026-10-15"
+        - name: movie_id
+          in: query
+          required: false
+          description: ID bộ phim cần lọc
+          schema:
+            type: integer
+            example: 1
+        - name: cinema_id
+          in: query
+          required: false
+          description: ID cụm rạp cần lọc
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Danh sách suất chiếu theo bộ lọc
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        showtime_id:
+                          type: integer
+                          example: 10
+                        movie_id:
+                          type: integer
+                          example: 1
+                        room_id:
+                          type: integer
+                          example: 2
+                        cinema_id:
+                          type: integer
+                          example: 1
+                        start_time:
+                          type: string
+                          example: "2026-10-15T19:00:00"
+                        end_time:
+                          type: string
+                          example: "2026-10-15T21:11:00"
+                        price:
+                          type: string
+                          example: "90000.00"
+        '400':
+          description: Sai định dạng tham số truy vấn
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "date phải có dạng YYYY-MM-DD"
+
+  /admin/movies:
+    post:
+      summary: Thêm phim mới vào danh mục (Admin)
+      tags:
+        - Catalog & Showtime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - duration_minutes
+              properties:
+                title:
+                  type: string
+                  example: "Godzilla x Kong"
+                duration_minutes:
+                  type: integer
+                  example: 115
+                description:
+                  type: string
+                  example: "Trận chiến của các quái thú Titan"
+                age_rating:
+                  type: string
+                  example: "T13"
+                poster_url:
+                  type: string
+                  example: "https://cinema.vn/posters/godzilla.jpg"
+                trailer_url:
+                  type: string
+                  example: "https://youtube.com/watch?v=sample"
+      responses:
+        '201':
+          description: Thêm phim mới thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Movie added successfully"
+                  movie_id:
+                    type: integer
+                    example: 5
+        '400':
+          description: Dữ liệu phim không hợp lệ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Tên phim không được để trống"
+        '415':
+          description: Header không phải application/json
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Cần gửi application/json"
+
+  /admin/showtimes:
+    post:
+      summary: Khởi tạo suất chiếu mới (Admin)
+      tags:
+        - Catalog & Showtime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - movie_id
+                - room_id
+                - start_time
+                - price
+              properties:
+                movie_id:
+                  type: integer
+                  example: 1
+                room_id:
+                  type: integer
+                  example: 2
+                start_time:
+                  type: string
+                  example: "2026-10-25T19:30:00"
+                price:
+                  type: number
+                  example: 85000.00
+      responses:
+        '201':
+          description: Khởi tạo suất chiếu thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Showtime added successfully"
+                  showtime_id:
+                    type: integer
+                    example: 15
+        '400':
+          description: Lỗi trùng lịch chiếu hoặc dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Lịch chiếu trùng trong cùng phòng"
+        '415':
+          description: Header không phải application/json
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Cần gửi application/json"
+
+  /admin/showtimes/{showtime_id}:
+    delete:
+      summary: Xóa suất chiếu (Admin)
+      tags:
+        - Catalog & Showtime
+      parameters:
+        - name: showtime_id
+          in: path
+          required: true
+          description: ID của suất chiếu cần xóa
+          schema:
+            type: integer
+            example: 15
+      responses:
+        '204':
+          description: Xóa suất chiếu thành công
+        '404':
+          description: Không tìm thấy suất chiếu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Không tìm thấy suất chiếu"
+        '409':
+          description: Suất chiếu đã có vé hoặc đơn hàng liên quan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Không thể xóa suất chiếu đã có đơn/vé liên quan"
