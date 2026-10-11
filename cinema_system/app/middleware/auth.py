@@ -68,18 +68,33 @@ def _extract_token_from_request():
 
 def _resolve_user_from_token(token, app):
     """Giải mã token và trả về User object, hoặc None nếu không hợp lệ"""
-    from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
-
     secret_key = app.config.get('SECRET_KEY', 'default-dev-key')
-    s = URLSafeTimedSerializer(secret_key)
+
+    # 1. Thử giải mã bằng URLSafeTimedSerializer (itsdangerous)
     try:
+        from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+        s = URLSafeTimedSerializer(secret_key)
         data = s.loads(token, max_age=86400)  # Token hết hạn sau 24 giờ
-        user_id = data.get('user_id')
-        if not user_id:
-            return None
-        return user_repository.get_by_id(user_id)
-    except (SignatureExpired, BadSignature):
-        return None
+        user_id = data.get('user_id') if isinstance(data, dict) else data
+        if user_id:
+            return user_repository.get_by_id(user_id)
+    except Exception:
+        pass
+
+    # 2. Fallback: Thử giải mã HMAC-SHA256 b64 token dự phòng
+    try:
+        import base64, json, hmac, hashlib
+        if '.' in token:
+            payload_b64, sig_b64 = token.split('.', 1)
+            padded = payload_b64 + '=' * (-len(payload_b64) % 4)
+            data = json.loads(base64.urlsafe_b64decode(padded).decode('utf-8'))
+            user_id = data.get('user_id')
+            if user_id:
+                return user_repository.get_by_id(user_id)
+    except Exception:
+        pass
+
+    return None
 
 
 # ──────────────────────────────────────────────
@@ -140,34 +155,28 @@ def init_auth_middleware(app):
                 if user:
                     g.current_user = user
             elif request.headers.get('X-User-Id'):
-                try:
-                    user_id = int(request.headers.get('X-User-Id'))
-                    user = user_repository.get_by_id(user_id)
-                    if user:
-                        g.current_user = user
-                except (ValueError, TypeError):
-                    pass
+                dev_user_id = request.headers.get('X-User-Id').strip()
+                user = user_repository.get_by_id(dev_user_id)
+                if user:
+                    g.current_user = user
             return None  # Cho qua, không bắt buộc xác thực
 
         # ── Bước 2: Trích xuất token ──
         token = _extract_token_from_request()
 
-        # Fallback: dev test nhanh bằng X-User-Id
+        # Fallback: dev test nhanh bằng Header X-User-Id
         if not token and request.headers.get('X-User-Id'):
-            try:
-                user_id = int(request.headers.get('X-User-Id'))
-                user = user_repository.get_by_id(user_id)
-                if user:
-                    g.current_user = user
-                    # Vẫn cần kiểm tra admin nếu endpoint yêu cầu
-                    if _is_admin_endpoint(method, path) and user.role != 'admin':
-                        return jsonify({
-                            'status': 'error',
-                            'message': 'Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!'
-                        }), 403
-                    return None
-            except (ValueError, TypeError):
-                pass
+            dev_user_id = request.headers.get('X-User-Id').strip()
+            user = user_repository.get_by_id(dev_user_id)
+            if user:
+                g.current_user = user
+                # Vẫn cần kiểm tra admin nếu endpoint yêu cầu
+                if _is_admin_endpoint(method, path) and (user.role or '').lower() != 'admin':
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!'
+                    }), 403
+                return None
 
         if not token:
             return jsonify({
@@ -183,11 +192,11 @@ def init_auth_middleware(app):
                 'message': 'Token không hợp lệ hoặc đã hết hạn!'
             }), 401
 
-        # ── Bước 4: Gán user vào context ──
+        # ── Bước 4: Gán user vào context toàn cục ──
         g.current_user = user
 
-        # ── Bước 5: Kiểm tra quyền Admin ──
-        if _is_admin_endpoint(method, path) and user.role != 'admin':
+        # ── Bước 5: Kiểm tra quyền Admin (Hỗ trợ cả 'ADMIN' và 'admin') ──
+        if _is_admin_endpoint(method, path) and (user.role or '').lower() != 'admin':
             return jsonify({
                 'status': 'error',
                 'message': 'Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!'

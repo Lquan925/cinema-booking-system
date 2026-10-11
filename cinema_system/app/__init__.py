@@ -18,6 +18,7 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
+
     # Đăng ký Models để Flask-Migrate nhận diện
     from app import models
 
@@ -41,4 +42,5 @@ def create_app():
     @app.route('/')
     def index():
         return {"status": "success", "message": "Cinema Booking API is running!"}
+
     return app
