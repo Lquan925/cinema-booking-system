@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from . import services
 
 # Gắn tiền tố /api cho toàn bộ các route trong module này
@@ -11,8 +11,9 @@ def get_showtime_seats(showtime_id):
     Tải sơ đồ ghế của một suất chiếu:
     - URL: GET /api/showtimes/<showtime_id>/seats
     - Query params (tùy chọn): ?user_id=<user_id>
+    - Hoặc tự động nhận diện từ Token xác thực (g.current_user)
     """
-    current_user_id = request.args.get('user_id', type=int)
+    current_user_id = request.args.get('user_id', type=int) or getattr(getattr(g, 'current_user', None), 'user_id', None)
     result = services.get_showtime_seats_service(showtime_id, current_user_id=current_user_id)
     status_code = result.pop('status_code', 200)
     return jsonify(result), status_code
@@ -25,7 +26,7 @@ def api_lock_seat():
     - URL: POST /api/booking/lock-seat
     - Body JSON:
         {
-            "user_id": 5,
+            "user_id": 5,          # Tùy chọn (nhân viên quầy truyền ID khách, hoặc tự lấy từ Auth Token)
             "showtime_id": 1,
             "seat_id": 15          # Khóa 1 ghế
             # HOẶC "seat_ids": [15, 16] # Khóa nhiều ghế
@@ -36,7 +37,8 @@ def api_lock_seat():
     if not data:
         return jsonify({"error": "Dữ liệu JSON không hợp lệ hoặc thiếu body", "status": "error"}), 400
 
-    user_id = data.get('user_id')
+    # Ưu tiên user_id truyền trong body, nếu không có thì lấy từ Auth Token
+    user_id = data.get('user_id') or getattr(getattr(g, 'current_user', None), 'user_id', None)
     showtime_id = data.get('showtime_id')
 
     # Hỗ trợ cả 2 cách gửi: 'seat_id' (1 ghế) hoặc 'seat_ids' (danh sách)
@@ -67,7 +69,7 @@ def api_unlock_seat():
     - URL: POST /api/booking/unlock-seat
     - Body JSON:
         {
-            "user_id": 5,
+            "user_id": 5,         # Tùy chọn (nhân viên quầy truyền ID khách, hoặc tự lấy từ Auth Token)
             "showtime_id": 1,
             "seat_id": 15         # Tùy chọn (mở 1 ghế)
             # HOẶC "seat_ids": [15, 16] # Tùy chọn (mở nhiều ghế)
@@ -78,7 +80,7 @@ def api_unlock_seat():
     if not data:
         return jsonify({"error": "Dữ liệu JSON không hợp lệ hoặc thiếu body", "status": "error"}), 400
 
-    user_id = data.get('user_id')
+    user_id = data.get('user_id') or getattr(getattr(g, 'current_user', None), 'user_id', None)
     showtime_id = data.get('showtime_id')
 
     seat_ids = None

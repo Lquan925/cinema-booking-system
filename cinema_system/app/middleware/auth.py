@@ -89,8 +89,14 @@ def _resolve_user_from_token(token, app):
 def _is_public_endpoint(method, path):
     """Kiểm tra request hiện tại có phải endpoint công khai không"""
     for pub_method, pub_path in PUBLIC_ENDPOINTS:
-        if method == pub_method and path.rstrip('/') == pub_path.rstrip('/'):
-            return True
+        if method == pub_method:
+            clean_path = path.rstrip('/')
+            clean_pub = pub_path.rstrip('/')
+            if clean_path == clean_pub:
+                return True
+            # Cho phép các sub-path công khai (ví dụ: /api/showtimes/1/seats, /api/movies/1)
+            if clean_pub in ['/api/movies', '/api/cinemas', '/api/showtimes'] and clean_path.startswith(clean_pub + '/'):
+                return True
     return False
 
 
@@ -125,9 +131,23 @@ def init_auth_middleware(app):
         method = request.method
         path = request.path
 
-        # ── Bước 1: Bỏ qua endpoint công khai ──
+        # ── Bước 1: Xử lý endpoint công khai ──
         if _is_public_endpoint(method, path):
-            return None  # Cho qua, không cần xác thực
+            # Nếu client có gửi kèm token thì vẫn giải mã để lưu context user (phục vụ is_my_lock, v.v.)
+            token = _extract_token_from_request()
+            if token:
+                user = _resolve_user_from_token(token, app)
+                if user:
+                    g.current_user = user
+            elif request.headers.get('X-User-Id'):
+                try:
+                    user_id = int(request.headers.get('X-User-Id'))
+                    user = user_repository.get_by_id(user_id)
+                    if user:
+                        g.current_user = user
+                except (ValueError, TypeError):
+                    pass
+            return None  # Cho qua, không bắt buộc xác thực
 
         # ── Bước 2: Trích xuất token ──
         token = _extract_token_from_request()
