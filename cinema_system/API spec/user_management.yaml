@@ -1,0 +1,355 @@
+openapi: 3.0.3
+info:
+  title: User Management API
+  description: Tài liệu đặc tả API cho module Quản lý người dùng và Xác thực (User Management & Authentication) trong hệ thống Cinema Booking.
+  version: 1.0.0
+
+servers:
+  - url: /api
+    description: Base URL của hệ thống API
+
+paths:
+  /auth/register:
+    post:
+      summary: Khách hàng đăng ký tài khoản mới
+      description: Đăng ký tài khoản khách hàng thông thường trong hệ thống.
+      tags:
+        - User Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                  description: Họ và tên người dùng
+                  example: "Nguyen Van A"
+                email:
+                  type: string
+                  format: email
+                  description: Địa chỉ email người dùng
+                  example: "nguyenvana@gmail.com"
+                password:
+                  type: string
+                  format: password
+                  description: Mật khẩu (tối thiểu 6 ký tự)
+                  example: "Matkhau@123"
+      responses:
+        '201':
+          description: Đăng ký tài khoản thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                message: "Đăng ký tài khoản thành công!"
+                data:
+                  user_id: 1
+                  name: "Nguyen Van A"
+                  email: "nguyenvana@gmail.com"
+                  role: "CUSTOMER"
+                  loyalty_points: 0
+                  wallet_balance: 0
+        '400':
+          description: Dữ liệu không hợp lệ (thiếu trường, email sai định dạng, mật khẩu ngắn hoặc email đã tồn tại)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Email này đã được sử dụng."
+
+  /auth/login:
+    post:
+      summary: Đăng nhập hệ thống - Cấp Token
+      description: Xác thực người dùng bằng email và mật khẩu, trả về Bearer Token để sử dụng cho các API yêu cầu bảo mật.
+      tags:
+        - User Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: Địa chỉ email đã đăng ký
+                  example: "nguyenvana@gmail.com"
+                password:
+                  type: string
+                  format: password
+                  description: Mật khẩu
+                  example: "Matkhau@123"
+      responses:
+        '200':
+          description: Đăng nhập thành công và cấp Token xác thực
+          content:
+            application/json:
+              example:
+                status: "success"
+                message: "Đăng nhập thành công!"
+                token: "InVzZXJfaWQiOiIxIiwicm9sZSI6IkNVU1RPTUVSIi4uLg"
+                user:
+                  user_id: 1
+                  name: "Nguyen Van A"
+                  email: "nguyenvana@gmail.com"
+                  role: "CUSTOMER"
+                  loyalty_points: 0
+                  wallet_balance: 0
+        '401':
+          description: Email hoặc mật khẩu không chính xác
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Email hoặc mật khẩu không chính xác."
+
+  /users/profile:
+    get:
+      summary: Xem thông tin cá nhân, điểm tích lũy & số dư ví
+      description: Lấy thông tin chi tiết của người dùng đang đăng nhập dựa trên Bearer Token.
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lấy thông tin cá nhân thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                data:
+                  user_id: 1
+                  name: "Nguyen Van A"
+                  email: "nguyenvana@gmail.com"
+                  role: "CUSTOMER"
+                  loyalty_points: 120
+                  wallet_balance: 250000
+        '401':
+          description: Chưa đăng nhập hoặc Token không hợp lệ / hết hạn
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+
+    put:
+      summary: Cập nhật thông tin cá nhân hoặc đổi mật khẩu
+      description: Cho phép người dùng hiện tại cập nhật họ tên hoặc thay đổi mật khẩu.
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Họ và tên mới
+                  example: "Nguyen Van B"
+                password:
+                  type: string
+                  format: password
+                  description: Mật khẩu mới (tối thiểu 6 ký tự)
+                  example: "NewPass@456"
+      responses:
+        '200':
+          description: Cập nhật thông tin thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                message: "Cập nhật thông tin thành công!"
+                data:
+                  user_id: 1
+                  name: "Nguyen Van B"
+                  email: "nguyenvana@gmail.com"
+                  role: "CUSTOMER"
+                  loyalty_points: 120
+                  wallet_balance: 250000
+        '400':
+          description: Dữ liệu không hợp lệ (mật khẩu mới ít hơn 6 ký tự)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Mật khẩu mới phải có tối thiểu 6 ký tự."
+        '401':
+          description: Phiên đăng nhập không hợp lệ hoặc thiếu Token
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Không tìm thấy phiên đăng nhập."
+
+  /admin/users:
+    get:
+      summary: Admin xem danh sách toàn bộ người dùng & nhân viên
+      description: Dành riêng cho quản trị viên (Admin) tra cứu, lọc theo vai trò và phân trang danh sách người dùng.
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: role
+          in: query
+          required: false
+          description: Lọc theo vai trò (CUSTOMER, STAFF, ADMIN)
+          schema:
+            type: string
+            enum:
+              - CUSTOMER
+              - STAFF
+              - ADMIN
+          example: "CUSTOMER"
+        - name: search
+          in: query
+          required: false
+          description: Tìm kiếm theo họ tên hoặc email
+          schema:
+            type: string
+          example: "Nguyen"
+        - name: page
+          in: query
+          required: false
+          description: Số thứ tự trang
+          schema:
+            type: integer
+            default: 1
+          example: 1
+        - name: per_page
+          in: query
+          required: false
+          description: Số lượng bản ghi trên mỗi trang
+          schema:
+            type: integer
+            default: 10
+          example: 10
+      responses:
+        '200':
+          description: Lấy danh sách người dùng thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                total: 1
+                data:
+                  - user_id: 1
+                    name: "Nguyen Van A"
+                    email: "nguyenvana@gmail.com"
+                    role: "CUSTOMER"
+                    loyalty_points: 120
+                    wallet_balance: 250000
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+        '403':
+          description: Quyền truy cập bị từ chối (Tài khoản không phải Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+
+    post:
+      summary: Admin cấp tài khoản mới cho nhân viên quầy
+      description: Dành riêng cho quản trị viên (Admin) tạo tài khoản nhân viên (STAFF) hoặc các vai trò khác trong rạp chiếu.
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                  description: Họ và tên nhân viên
+                  example: "Tran Thi Nhan Vien"
+                email:
+                  type: string
+                  format: email
+                  description: Địa chỉ email của nhân viên
+                  example: "staff01@cinema.com"
+                password:
+                  type: string
+                  format: password
+                  description: Mật khẩu nhân viên
+                  example: "Staff@123456"
+                role:
+                  type: string
+                  description: Vai trò cấp cho người dùng
+                  enum:
+                    - STAFF
+                    - ADMIN
+                    - CUSTOMER
+                  default: "STAFF"
+                  example: "STAFF"
+      responses:
+        '201':
+          description: Tạo tài khoản nhân viên thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                message: "Tạo tài khoản STAFF thành công!"
+                data:
+                  user_id: 2
+                  name: "Tran Thi Nhan Vien"
+                  email: "staff01@cinema.com"
+                  role: "STAFF"
+                  loyalty_points: 0
+                  wallet_balance: 0
+        '400':
+          description: Dữ liệu không hợp lệ hoặc email đã tồn tại
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Email nhân viên đã tồn tại."
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Tài khoản không phải Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Gửi chuỗi Token trong header theo cú pháp Authorization: Bearer <token>"
