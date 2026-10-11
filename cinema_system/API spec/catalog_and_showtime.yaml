@@ -47,11 +47,11 @@ paths:
                           example: "T18"
                         poster_url:
                           type: string
-                          example: "https://cinema.vn/posters/mai.jpg"
+                          example: "https://dummyimage.com/600x800/000/fff&text=Mai"
                         trailer_url:
                           type: string
-                          example: "https://youtube.com/watch?v=sample"
-
+                          example: "https://youtu.be/EX6clvId19s?si=b_6CRmRPJXvsuzHt"
+                          
   /cinemas:
     get:
       summary: Lấy danh sách toàn bộ cụm rạp
@@ -184,10 +184,10 @@ paths:
                   example: "T13"
                 poster_url:
                   type: string
-                  example: "https://cinema.vn/posters/godzilla.jpg"
+                  example: "https://dummyimage.com/600x800/000/fff&text=Godzilla_x_Kong"
                 trailer_url:
                   type: string
-                  example: "https://youtube.com/watch?v=sample"
+                  example: "https://youtu.be/lV1OOlGwExM?si=kOeo9U72bcIHGsHDe"
       responses:
         '201':
           description: Thêm phim mới thành công
