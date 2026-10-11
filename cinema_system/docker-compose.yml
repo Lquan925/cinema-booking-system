@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  # 1. Cơ sở dữ liệu quan hệ (Lưu vĩnh viễn)
+  mysql-db:
+    image: mysql:8.0
+    container_name: cinema_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: cinema_db
+      MYSQL_USER: cinema_user
+      MYSQL_PASSWORD: cinema_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # 2. Bộ nhớ đệm & Giữ ghế Realtime (Lưu tạm thời)
+  redis-cache:
+    image: redis:7-alpine
+    container_name: cinema_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # 3. Giao diện quản lý Database trên Web (Tiện ích đi kèm)
+  adminer:
+    image: adminer
+    container_name: cinema_adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql-db
+
+volumes:
+  mysql_data:
+  redis_data:
