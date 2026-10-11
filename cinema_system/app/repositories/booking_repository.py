@@ -7,6 +7,8 @@ Chịu trách nhiệm toàn bộ thao tác CRUD với các bảng:
   - Orders                                     (Đơn hàng)
 Services chỉ gọi các hàm ở đây, không truy cập db.session trực tiếp.
 """
+from datetime import datetime, timedelta
+
 from app import db
 from app.models import Movie, Cinema, Room, Seat, Showtime, Ticket, Order
 
@@ -72,16 +74,60 @@ def get_showtime_by_id(showtime_id):
     return Showtime.query.get(showtime_id)
 
 
-def get_all_showtimes(movie_id=None, cinema_id=None):
+def get_all_showtimes(movie_id=None, cinema_id=None, date=None):
     """
-    Lấy danh sách suất chiếu, có thể lọc theo movie_id hoặc cinema_id.
+    Lấy danh sách suất chiếu, có thể lọc theo movie_id, cinema_id hoặc date (YYYY-MM-DD hoặc date/datetime).
+    Lọc ngày theo khoảng: start_of_day <= start_time < next_day.
     """
     query = Showtime.query
     if movie_id:
         query = query.filter_by(movie_id=movie_id)
     if cinema_id:
         query = query.join(Room).filter(Room.cinema_id == cinema_id)
-    return query.all()
+    if date is not None:
+        if isinstance(date, str):
+            parsed_date = datetime.strptime(date, "%Y-%m-%d").date()
+        elif isinstance(date, datetime):
+            parsed_date = date.date()
+        else:
+            parsed_date = date
+
+        start_of_day = datetime(parsed_date.year, parsed_date.month, parsed_date.day, 0, 0, 0)
+        next_day = start_of_day + timedelta(days=1)
+        query = query.filter(Showtime.start_time >= start_of_day, Showtime.start_time < next_day)
+
+    return query.order_by(Showtime.start_time, Showtime.showtime_id).all()
+
+
+def check_overlapping_showtime(room_id, start_time, end_time, exclude_showtime_id=None):
+    """
+    Kiểm tra xem phòng chiếu đã có lịch chiếu nào bị trùng khoảng thời gian hay chưa.
+    Lịch chiếu trùng nhau khi: start_time < existing.end_time AND end_time > existing.start_time
+    """
+    query = Showtime.query.filter(
+        Showtime.room_id == room_id,
+        Showtime.start_time < end_time,
+        Showtime.end_time > start_time
+    )
+    if exclude_showtime_id is not None:
+        query = query.filter(Showtime.showtime_id != exclude_showtime_id)
+    return query.first() is not None
+
+
+def has_tickets_for_showtime(showtime_id):
+    """Kiểm tra xem suất chiếu đã phát sinh vé nào chưa"""
+    return Ticket.query.filter_by(showtime_id=showtime_id).first() is not None
+
+
+def delete_showtime(showtime):
+    """Xóa suất chiếu khỏi database"""
+    try:
+        db.session.delete(showtime)
+        db.session.commit()
+        return True, None
+    except Exception as e:
+        db.session.rollback()
+        return False, str(e)
 
 
 def create_showtime(start_time, end_time, price, movie_id, room_id):
