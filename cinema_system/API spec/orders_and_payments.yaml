@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: Orders and Payments API
+  version: 1.0.0
+paths:
+  /orders:
+    post:
+      summary: Tạo đơn hàng mới
+      tags:
+        - Orders & Payments
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ticket_ids
+              properties:
+                ticket_ids:
+                  type: array
+                  items:
+                    type: integer
+                  example: [1, 2]
+      responses:
+        '201':
+          description: Đơn hàng được tạo thành công
+          content:
+            application/json:
+              example:
+                message: "Order created successfully"
+                order_id: 10
+        '400':
+          description: Dữ liệu không hợp lệ hoặc vé không tồn tại
+
+  /payments/process/{order_id}:
+    post:
+      summary: Thanh toán đơn hàng qua ví
+      tags:
+        - Orders & Payments
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 10
+      responses:
+        '200':
+          description: Thanh toán thành công
+          content:
+            application/json:
+              example:
+                message: "Payment processed successfully"
+        '400':
+          description: Số dư ví không đủ
+        '404':
+          description: Không tìm thấy đơn hàng
+
+  /orders/history:
+    get:
+      summary: Lấy lịch sử mua vé của người dùng hiện tại
+      tags:
+        - Orders & Payments
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Danh sách đơn hàng
+          content:
+            application/json:
+              example:
+                orders:
+                  - order_id: 10
+                    total_amount: 180000.0
+                    status: "completed"
+                    created_at: "2026-10-11T19:30:00"
+                    tickets: []
+        '404':
+          description: Người dùng chưa có đơn hàng nào
