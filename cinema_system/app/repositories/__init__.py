@@ -4,5 +4,6 @@
 
 from . import user_repository
 from . import booking_repository
+from . import analytics_repository
 
-__all__ = ['user_repository', 'booking_repository']
+__all__ = ['user_repository', 'booking_repository', 'analytics_repository']
