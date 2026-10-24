@@ -121,7 +121,9 @@ cinema_system/
 │       ├── Orders_and_payments/   # APIs Đơn hàng, Thanh toán, Lịch sử
 │       └── Reports_and_Analytics/ # APIs Báo cáo thống kê (Admin)
 ├── API spec/
-│   └── orders_and_payments.yaml   # OpenAPI Specification
+│   ├── booking_and_seat.yaml      # OpenAPI Spec: Sơ đồ ghế & Khóa/Mở khóa ghế
+│   ├── orders_and_payments.yaml   # OpenAPI Spec: Đơn hàng & Thanh toán
+│   └── user_management.yaml       # OpenAPI Spec: Người dùng & Xác thực
 ├── migrations/                    # File versioning CSDL qua Flask-Migrate
 ├── docker-compose.yml             # Cấu hình container MySQL, Redis, Adminer
 ├── requirements.txt               # Danh sách thư viện Python

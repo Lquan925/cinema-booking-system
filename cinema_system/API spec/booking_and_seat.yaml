@@ -1,0 +1,606 @@
+openapi: 3.0.3
+info:
+  title: Booking and Seat Management API
+  description: |
+    API specification for the **Booking & Seat Management** module in the Cinema Booking System.
+    
+    ### Key Responsibilities:
+    1. **Real-Time Seat Layout & Availability:**
+       - Retrieves the complete seat matrix of a cinema auditorium for a given showtime.
+       - Aggregates finalized bookings from MySQL (`Tickets` table where `status != 'cancelled'`) and active temporary holds from Redis (`seat_lock:{showtime_id}:{seat_id}`).
+       - Determines whether a locked seat belongs to the requesting client (`is_my_lock`) and tracks remaining lock expiration time (`expires_in_seconds`).
+    2. **Distributed Seat Locking (Concurrency Control):**
+       - Implements Redis distributed locks using atomic `SET key user_id NX EX ttl` operations with a configurable Time-To-Live (default: 600s / 10 minutes).
+       - Enforces a business limit of **up to 8 seats per user** per showtime (`MAX_SEATS_PER_USER = 8`).
+       - Features **Atomic Multi-Seat Lock & Automatic Rollback**: If any requested seat is contested or already acquired by another user, all seats provisionally locked in that batch are immediately released to prevent partial reservation deadlocks.
+    3. **Seat Hold Release (Unlock Mechanism):**
+       - Enables manual release of seat locks when customers cancel selection, switch seats, or complete/abandon payment.
+       - Validates lock ownership before releasing individual seats (`403 Forbidden` if attempting to unlock seats held by another user).
+       - Supports bulk-releasing all seats held by the current user for a showtime.
+  version: 1.0.0
+
+servers:
+  - url: /api
+    description: Base URL for Cinema Booking API services
+
+tags:
+  - name: Booking & Seat
+    description: Operations for seat layout visualization and real-time distributed seat locking/unlocking via Redis
+
+paths:
+  /showtimes/{showtime_id}/seats:
+    get:
+      summary: Retrieve seat map and real-time seat availability
+      description: |
+        Fetches the complete room layout and seating availability for a specific showtime.
+        
+        **Seat Status Definitions:**
+        - `available`: The seat is vacant and can be selected by customers.
+        - `locked`: The seat is temporarily held by a user in Redis during checkout.
+        - `sold`: The ticket has been purchased and confirmed in the MySQL database.
+        
+        **Client Identity:**
+        - This endpoint is **Public**. Anonymous visitors can view seat maps without authentication.
+        - Authenticated users can provide a Bearer Token (`Authorization: Bearer <token>`) or `?user_id=<id>` query parameter. When provided, the system checks whether locked seats belong to the caller (`is_my_lock: true`) and returns the remaining hold duration (`expires_in_seconds`).
+      tags:
+        - Booking & Seat
+      security:
+        - {}
+        - BearerAuth: []
+      parameters:
+        - name: showtime_id
+          in: path
+          required: true
+          description: Unique identifier of the showtime
+          schema:
+            type: integer
+          example: 1
+        - name: user_id
+          in: query
+          required: false
+          description: Optional user ID to identify whether locked seats belong to this user
+          schema:
+            type: integer
+          example: 5
+      responses:
+        '200':
+          description: Seat layout and real-time statuses retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: object
+                    properties:
+                      showtime:
+                        $ref: '#/components/schemas/ShowtimeInfo'
+                      summary:
+                        $ref: '#/components/schemas/SeatsSummary'
+                      seats:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SeatItem'
+              example:
+                status: "success"
+                data:
+                  showtime:
+                    showtime_id: 1
+                    movie_id: 1
+                    movie_title: "Dune: Part Two"
+                    room_id: 1
+                    room_name: "Auditorium 01"
+                    screen_type: "IMAX"
+                    start_time: "2026-10-25T18:00:00"
+                    end_time: "2026-10-25T20:45:00"
+                    base_price: 90000.0
+                  summary:
+                    total_seats: 50
+                    available_seats: 46
+                    locked_seats: 2
+                    sold_seats: 2
+                  seats:
+                    - seat_id: 1
+                      seat_row: "A"
+                      seat_number: 1
+                      seat_type: "standard"
+                      price: 90000.0
+                      status: "sold"
+                      locked_by: null
+                      is_my_lock: false
+                      expires_in_seconds: null
+                    - seat_id: 15
+                      seat_row: "C"
+                      seat_number: 5
+                      seat_type: "VIP"
+                      price: 90000.0
+                      status: "locked"
+                      locked_by: 5
+                      is_my_lock: true
+                      expires_in_seconds: 520
+                    - seat_id: 16
+                      seat_row: "C"
+                      seat_number: 6
+                      seat_type: "VIP"
+                      price: 90000.0
+                      status: "available"
+                      locked_by: null
+                      is_my_lock: false
+                      expires_in_seconds: null
+        '404':
+          description: Showtime or auditorium room not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                showtime_not_found:
+                  summary: Showtime does not exist
+                  value:
+                    error: "Suất chiếu không tồn tại"
+                    status_code: 404
+                room_not_found:
+                  summary: Auditorium room does not exist
+                  value:
+                    error: "Phòng chiếu không tồn tại"
+                    status_code: 404
+
+  /booking/lock-seat:
+    post:
+      summary: Temporarily hold/lock seats via Redis Distributed Lock
+      description: |
+        Places an atomic temporary hold on one or multiple seats for a customer during checkout.
+        
+        **Business Rules & Distributed Lock Behavior:**
+        1. **Authentication:** Automatically resolves `user_id` from the Bearer Token, with fallback support for counter staff providing `user_id` directly in the payload.
+        2. **Validation:**
+           - Verifies that the showtime and user exist in the database.
+           - Ensures all requested seats belong to the auditorium assigned to this showtime.
+           - Rejects requests if any seat has already been sold (`Ticket.status != 'cancelled'`).
+        3. **Concurrency Quota:** Enforces a maximum cap of **8 concurrently held seats per user** for a single showtime (`MAX_SEATS_PER_USER = 8`).
+        4. **Atomic Locking & Rollback:**
+           - Uses Redis `SET seat_lock:{showtime_id}:{seat_id} {user_id} NX EX {ttl}` for mutual exclusion.
+           - If any single seat in the batch is contested or occupied (`NX` fails), the system **rolls back all seats locked during that transaction** and returns `409 Conflict`.
+        5. **Set Tracking:** Indexes active locks in the Redis set `user_locks:{user_id}:{showtime_id}` with TTL refresh.
+      tags:
+        - Booking & Seat
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        description: Target showtime and seat identification payload
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LockSeatRequest'
+            examples:
+              lock_multiple_seats:
+                summary: Lock multiple seats concurrently (standard workflow)
+                value:
+                  showtime_id: 1
+                  seat_ids: [15, 16]
+                  ttl: 600
+              lock_single_seat:
+                summary: Lock a single seat (with explicit user_id for counter staff)
+                value:
+                  user_id: 5
+                  showtime_id: 1
+                  seat_id: 15
+                  ttl: 600
+      responses:
+        '200':
+          description: Seats locked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Khóa ghế thành công. Vui lòng hoàn tất thanh toán trong thời gian quy định."
+                  data:
+                    type: object
+                    properties:
+                      user_id:
+                        type: integer
+                        example: 5
+                      showtime_id:
+                        type: integer
+                        example: 1
+                      locked_seats:
+                        type: array
+                        items:
+                          type: integer
+                        example: [15, 16]
+                      expires_in_seconds:
+                        type: integer
+                        example: 600
+                      total_holding_seats:
+                        type: array
+                        items:
+                          type: integer
+                        example: [15, 16]
+              example:
+                status: "success"
+                message: "Khóa ghế thành công. Vui lòng hoàn tất thanh toán trong thời gian quy định."
+                data:
+                  user_id: 5
+                  showtime_id: 1
+                  locked_seats: [15, 16]
+                  expires_in_seconds: 600
+                  total_holding_seats: [15, 16]
+        '400':
+          description: Invalid request payload, seats already sold, or quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_body:
+                  summary: Missing or invalid JSON body
+                  value:
+                    error: "Dữ liệu JSON không hợp lệ hoặc thiếu body"
+                    status: "error"
+                empty_seat_list:
+                  summary: Empty seat_ids list
+                  value:
+                    error: "Danh sách seat_ids không hợp lệ hoặc đang để trống"
+                invalid_room_seats:
+                  summary: Seats do not belong to the auditorium of this showtime
+                  value:
+                    error: "Các ghế sau không thuộc phòng chiếu của suất này: [999]"
+                seat_already_sold:
+                  summary: Seat has already been purchased
+                  value:
+                    error: "Ghế ID 15 đã được đặt mua trước đó, không thể giữ chỗ."
+                exceed_seat_quota:
+                  summary: Exceeds the 8-seat hold limit per user
+                  value:
+                    error: "Bạn chỉ được giữ tối đa 8 ghế cùng lúc cho suất chiếu này. Hiện bạn đang giữ 8 ghế."
+        '401':
+          description: Unauthorized - missing or invalid Bearer Token
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Vui lòng đăng nhập để thực hiện chức năng này!"
+        '404':
+          description: Referenced User or Showtime not found in database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                user_not_found:
+                  summary: User not found
+                  value:
+                    error: "Người dùng ID 5 không tồn tại"
+                showtime_not_found:
+                  summary: Showtime not found
+                  value:
+                    error: "Suất chiếu ID 99 không tồn tại"
+        '409':
+          description: Seat lock collision - one or more seats are already held by another client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Ghế ID 15 đã có người khác chọn hoặc đang được giữ chỗ."
+        '503':
+          description: Redis cache service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Lỗi kết nối dịch vụ Redis, không thể thực hiện giữ ghế lúc này."
+
+  /booking/unlock-seat:
+    post:
+      summary: Release/unlock temporarily held seats
+      description: |
+        Explicitly releases active seat locks from Redis when a user unselects seats, changes showtimes, or abandons checkout.
+        
+        **Release Modes:**
+        - **Selective Unlock:** Pass `seat_ids` (or `seat_id`). The system verifies ownership of each lock and releases the keys. If an unauthorized client attempts to unlock seats held by someone else, a `403 Forbidden` response is returned.
+        - **Complete Bulk Unlock:** Omit `seat_ids` and `seat_id`. The system automatically queries `user_locks:{user_id}:{showtime_id}` and releases **all seats** held by this user for the specified showtime.
+      tags:
+        - Booking & Seat
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        description: Showtime and seat IDs to unlock
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnlockSeatRequest'
+            examples:
+              unlock_specific_seats:
+                summary: Unlock specific seats
+                value:
+                  showtime_id: 1
+                  seat_ids: [15]
+              unlock_all_held_seats:
+                summary: Unlock all seats held by the user for this showtime
+                value:
+                  showtime_id: 1
+      responses:
+        '200':
+          description: Seats released/unlocked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Mở khóa ghế thành công"
+                  data:
+                    type: object
+                    properties:
+                      user_id:
+                        type: integer
+                        example: 5
+                      showtime_id:
+                        type: integer
+                        example: 1
+                      unlocked_seats:
+                        type: array
+                        items:
+                          type: integer
+                        example: [15]
+              example:
+                status: "success"
+                message: "Mở khóa ghế thành công"
+                data:
+                  user_id: 5
+                  showtime_id: 1
+                  unlocked_seats: [15]
+        '400':
+          description: Missing required fields (such as showtime_id or user_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_body:
+                  summary: Missing JSON payload
+                  value:
+                    error: "Dữ liệu JSON không hợp lệ hoặc thiếu body"
+                    status: "error"
+                missing_showtime:
+                  summary: Missing showtime_id
+                  value:
+                    error: "Thiếu showtime_id"
+                missing_user:
+                  summary: Missing user_id
+                  value:
+                    error: "Thiếu user_id"
+        '401':
+          description: Unauthorized - missing or invalid Bearer Token
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Vui lòng đăng nhập để thực hiện chức năng này!"
+        '403':
+          description: Forbidden - attempt to unlock a seat held by another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Bạn không có quyền mở khóa ghế ID 15 vì đang do người khác giữ."
+        '503':
+          description: Redis cache service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Lỗi kết nối dịch vụ Redis, không thể mở khóa ghế lúc này."
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Bearer Token authentication header. Format: Authorization: Bearer <token>"
+
+  schemas:
+    ShowtimeInfo:
+      type: object
+      description: Detailed metadata of the showtime, movie, and auditorium
+      properties:
+        showtime_id:
+          type: integer
+          description: Showtime ID
+          example: 1
+        movie_id:
+          type: integer
+          description: Movie ID
+          example: 1
+        movie_title:
+          type: string
+          description: Title of the movie
+          example: "Dune: Part Two"
+        room_id:
+          type: integer
+          description: Auditorium ID
+          example: 1
+        room_name:
+          type: string
+          description: Name of the auditorium
+          example: "Auditorium 01"
+        screen_type:
+          type: string
+          description: Screen technology / format (2D, 3D, IMAX, 4DX)
+          example: "IMAX"
+        start_time:
+          type: string
+          format: date-time
+          description: Scheduled start time in ISO 8601 format
+          example: "2026-10-25T18:00:00"
+        end_time:
+          type: string
+          format: date-time
+          description: Scheduled end time in ISO 8601 format
+          example: "2026-10-25T20:45:00"
+        base_price:
+          type: number
+          format: float
+          description: Base ticket price for this showtime in VND
+          example: 90000.0
+
+    SeatsSummary:
+      type: object
+      description: Statistical seat capacity and availability overview
+      properties:
+        total_seats:
+          type: integer
+          description: Total number of physical seats in the room
+          example: 50
+        available_seats:
+          type: integer
+          description: Count of vacant seats available for reservation
+          example: 46
+        locked_seats:
+          type: integer
+          description: Count of seats currently held in Redis
+          example: 2
+        sold_seats:
+          type: integer
+          description: Count of seats already purchased and finalized
+          example: 2
+
+    SeatItem:
+      type: object
+      description: Individual seat attributes and real-time reservation status
+      properties:
+        seat_id:
+          type: integer
+          description: Unique seat identifier
+          example: 15
+        seat_row:
+          type: string
+          description: Row indicator (e.g. A, B, C...)
+          example: "C"
+        seat_number:
+          type: integer
+          description: Column number of the seat in the row
+          example: 5
+        seat_type:
+          type: string
+          description: Physical classification of the seat
+          enum:
+            - standard
+            - VIP
+            - couple
+          example: "VIP"
+        price:
+          type: number
+          format: float
+          description: Ticket price for this seat
+          example: 90000.0
+        status:
+          type: string
+          description: Real-time availability status
+          enum:
+            - available
+            - locked
+            - sold
+          example: "locked"
+        locked_by:
+          type: integer
+          nullable: true
+          description: User ID currently holding the seat lock (or null if vacant/sold)
+          example: 5
+        is_my_lock:
+          type: boolean
+          description: Flag indicating if the lock belongs to the requesting client
+          example: true
+        expires_in_seconds:
+          type: integer
+          nullable: true
+          description: Seconds remaining before Redis automatically expires this hold
+          example: 520
+
+    LockSeatRequest:
+      type: object
+      required:
+        - showtime_id
+      properties:
+        user_id:
+          type: integer
+          description: Target user ID (optional if authenticated via Bearer Token)
+          example: 5
+        showtime_id:
+          type: integer
+          description: ID of the showtime to reserve seats for
+          example: 1
+        seat_id:
+          type: integer
+          description: Single seat ID to hold (alternative to seat_ids)
+          example: 15
+        seat_ids:
+          type: array
+          items:
+            type: integer
+          description: Array of seat IDs to lock concurrently (recommended)
+          example: [15, 16]
+        ttl:
+          type: integer
+          description: Hold duration in seconds (optional, default 600 seconds = 10 minutes)
+          default: 600
+          example: 600
+
+    UnlockSeatRequest:
+      type: object
+      required:
+        - showtime_id
+      properties:
+        user_id:
+          type: integer
+          description: Target user ID (optional if authenticated via Bearer Token)
+          example: 5
+        showtime_id:
+          type: integer
+          description: ID of the showtime to release seats for
+          example: 1
+        seat_id:
+          type: integer
+          description: Single seat ID to release
+          example: 15
+        seat_ids:
+          type: array
+          items:
+            type: integer
+          description: Specific seat IDs to release (if omitted along with seat_id, all seats held by the user for this showtime are released)
+          example: [15]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Descriptive error message explaining the failure reason
+          example: "Suất chiếu không tồn tại"
+        status:
+          type: string
+          description: Error status indicator
+          example: "error"
+        status_code:
+          type: integer
+          description: HTTP status code
+          example: 404

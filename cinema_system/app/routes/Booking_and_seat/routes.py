@@ -8,10 +8,10 @@ booking_bp = Blueprint('booking', __name__, url_prefix='/api')
 @booking_bp.route('/showtimes/<int:showtime_id>/seats', methods=['GET'])
 def get_showtime_seats(showtime_id):
     """
-    Tải sơ đồ ghế của một suất chiếu:
+    Load seat map and real-time availability for a showtime:
     - URL: GET /api/showtimes/<showtime_id>/seats
-    - Query params (tùy chọn): ?user_id=<user_id>
-    - Hoặc tự động nhận diện từ Token xác thực (g.current_user)
+    - Query parameters (optional): ?user_id=<user_id>
+    - Or automatically detected from Bearer Token (g.current_user)
     """
     current_user_id = request.args.get('user_id', type=int) or getattr(getattr(g, 'current_user', None), 'user_id', None)
     result = services.get_showtime_seats_service(showtime_id, current_user_id=current_user_id)
@@ -22,15 +22,15 @@ def get_showtime_seats(showtime_id):
 @booking_bp.route('/booking/lock-seat', methods=['POST'])
 def api_lock_seat():
     """
-    Khóa ghế tạm thời vào Redis (5 - 10 phút):
+    Temporarily lock seats into Redis (5 - 10 minutes):
     - URL: POST /api/booking/lock-seat
-    - Body JSON:
+    - JSON Body:
         {
-            "user_id": 5,          # Tùy chọn (nhân viên quầy truyền ID khách, hoặc tự lấy từ Auth Token)
+            "user_id": 5,          # Optional (counter staff pass customer ID, or auto-extracted from Auth Token)
             "showtime_id": 1,
-            "seat_id": 15          # Khóa 1 ghế
-            # HOẶC "seat_ids": [15, 16] # Khóa nhiều ghế
-            # "ttl": 600           # Tùy chọn (mặc định 600 giây)
+            "seat_id": 15          # Lock 1 seat
+            # OR "seat_ids": [15, 16] # Lock multiple seats
+            # "ttl": 600           # Optional (default 600 seconds)
         }
     """
     data = request.get_json(silent=True)
@@ -65,15 +65,15 @@ def api_lock_seat():
 @booking_bp.route('/booking/unlock-seat', methods=['POST'])
 def api_unlock_seat():
     """
-    Mở khóa ghế nếu hết giờ hoặc khách hủy:
+    Unlock seats when expired or user cancels/switches seats:
     - URL: POST /api/booking/unlock-seat
-    - Body JSON:
+    - JSON Body:
         {
-            "user_id": 5,         # Tùy chọn (nhân viên quầy truyền ID khách, hoặc tự lấy từ Auth Token)
+            "user_id": 5,         # Optional (staff pass customer ID, or auto-extracted from Auth Token)
             "showtime_id": 1,
-            "seat_id": 15         # Tùy chọn (mở 1 ghế)
-            # HOẶC "seat_ids": [15, 16] # Tùy chọn (mở nhiều ghế)
-            # Nếu không truyền seat_id/seat_ids: Mở khóa TẤT CẢ ghế user đang giữ ở suất chiếu này
+            "seat_id": 15         # Optional (unlock single seat)
+            # OR "seat_ids": [15, 16] # Optional (unlock multiple seats)
+            # If seat_id/seat_ids omitted: Unlocks ALL seats held by this user for this showtime
         }
     """
     data = request.get_json(silent=True)
