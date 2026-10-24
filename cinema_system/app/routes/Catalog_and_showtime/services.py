@@ -92,7 +92,7 @@ def list_showtimes(date=None, movie_id=None, cinema_id=None):
     ]
 
 
-def add_movie(movie_data):
+def add_movie(movie_data, admin_id=None):
     title = movie_data.get("title")
     duration = movie_data.get("duration_minutes")
 
@@ -136,7 +136,7 @@ def add_movie(movie_data):
     return movie.movie_id
 
 
-def add_showtime(showtime_data):
+def add_showtime(showtime_data, admin_id=None):
     movie_id = showtime_data.get("movie_id")
     room_id = showtime_data.get("room_id")
 
@@ -222,7 +222,7 @@ def add_showtime(showtime_data):
     return showtime.showtime_id
 
 
-def delete_showtime(showtime_id):
+def delete_showtime(showtime_id, admin_id=None):
     showtime = booking_repository.get_showtime_by_id(showtime_id)
     if showtime is None:
         raise LookupError("Không tìm thấy suất chiếu")

@@ -1,0 +1,526 @@
+openapi: 3.0.3
+info:
+  title: Catalog and Showtime API
+  description: API quản lý Danh mục Phim, Cụm Rạp và Lịch Chiếu Phim (Catalog & Showtime Module)
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api
+    description: Local Development Server
+
+tags:
+  - name: Catalog & Showtime
+    description: Quản lý danh mục phim, rạp chiếu và lịch chiếu phim
+
+paths:
+  /movies:
+    get:
+      summary: Lấy danh sách toàn bộ phim
+      tags:
+        - Catalog & Showtime
+      responses:
+        '200':
+          description: Danh sách phim
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        movie_id:
+                          type: integer
+                          example: 1
+                        title:
+                          type: string
+                          example: "Mai"
+                        description:
+                          type: string
+                          example: "Phim tâm lý tình cảm của đạo diễn Trấn Thành"
+                        duration_minutes:
+                          type: integer
+                          example: 131
+                        age_rating:
+                          type: string
+                          example: "T18"
+                        poster_url:
+                          type: string
+                          example: "https://dummyimage.com/600x800/000/fff&text=Mai"
+                        trailer_url:
+                          type: string
+                          example: "https://youtu.be/EX6clvId19s?si=b_6CRmRPJXvsuzHt"
+    post:
+      summary: Thêm phim mới vào danh mục (Admin)
+      description: Thêm phim mới vào danh mục hệ thống. Yêu cầu quyền Quản trị viên (Admin).
+      tags:
+        - Catalog & Showtime
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - duration_minutes
+              properties:
+                title:
+                  type: string
+                  example: "Godzilla x Kong"
+                duration_minutes:
+                  type: integer
+                  example: 115
+                description:
+                  type: string
+                  example: "Trận chiến của các quái thú Titan"
+                age_rating:
+                  type: string
+                  example: "T13"
+                poster_url:
+                  type: string
+                  example: "https://dummyimage.com/600x800/000/fff&text=Godzilla_x_Kong"
+                trailer_url:
+                  type: string
+                  example: "https://youtu.be/lV1OOlGwExM?si=kOeo9U72bcIHGsHDe"
+      responses:
+        '201':
+          description: Thêm phim mới thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Movie added successfully"
+                  movie_id:
+                    type: integer
+                    example: 5
+        '400':
+          description: Dữ liệu phim không hợp lệ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                empty_title:
+                  summary: Tên phim để trống
+                  value:
+                    error: "Tên phim không được để trống"
+                invalid_duration:
+                  summary: Thời lượng không hợp lệ
+                  value:
+                    error: "Thời lượng phải là số nguyên dương"
+                title_too_long:
+                  summary: Tên phim vượt quá 255 ký tự
+                  value:
+                    error: "Tên phim tối đa 255 ký tự"
+                invalid_json:
+                  summary: Body không phải JSON object
+                  value:
+                    error: "Body phải là JSON object hợp lệ"
+                database_error:
+                  summary: Thất bại khi lưu vào CSDL
+                  value:
+                    error: "Không thể tạo phim: Database error"
+        '401':
+          description: Chưa xác thực hoặc Token không hợp lệ / hết hạn
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+              examples:
+                missing_token:
+                  summary: Thiếu token xác thực
+                  value:
+                    status: "error"
+                    message: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+                invalid_token:
+                  summary: Token không hợp lệ hoặc đã hết hạn
+                  value:
+                    status: "error"
+                    message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Quản trị viên)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+        '415':
+          description: Header không phải application/json
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Cần gửi application/json"
+
+  /cinemas:
+    get:
+      summary: Lấy danh sách toàn bộ cụm rạp
+      tags:
+        - Catalog & Showtime
+      responses:
+        '200':
+          description: Danh sách rạp chiếu phim
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        cinema_id:
+                          type: integer
+                          example: 1
+                        name:
+                          type: string
+                          example: "Cinema Star Ba Đình"
+                        address:
+                          type: string
+                          example: "29 Liễu Giai, Ba Đình, Hà Nội"
+                        hotline:
+                          type: string
+                          example: "1900 1234"
+
+  /showtimes:
+    get:
+      summary: Tra cứu và lọc danh sách suất chiếu
+      tags:
+        - Catalog & Showtime
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Ngày xem phim (định dạng YYYY-MM-DD)
+          schema:
+            type: string
+            example: "2026-10-15"
+        - name: movie_id
+          in: query
+          required: false
+          description: ID bộ phim cần lọc
+          schema:
+            type: integer
+            example: 1
+        - name: cinema_id
+          in: query
+          required: false
+          description: ID cụm rạp cần lọc
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Danh sách suất chiếu theo bộ lọc
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        showtime_id:
+                          type: integer
+                          example: 10
+                        movie_id:
+                          type: integer
+                          example: 1
+                        room_id:
+                          type: integer
+                          example: 2
+                        cinema_id:
+                          type: integer
+                          example: 1
+                        start_time:
+                          type: string
+                          example: "2026-10-15T19:00:00"
+                        end_time:
+                          type: string
+                          example: "2026-10-15T21:11:00"
+                        price:
+                          type: string
+                          example: "90000.00"
+        '400':
+          description: Tham số truy vấn không hợp lệ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                invalid_date:
+                  summary: Sai định dạng ngày
+                  value:
+                    error: "date phải có dạng YYYY-MM-DD"
+                invalid_movie_id:
+                  summary: movie_id không hợp lệ
+                  value:
+                    error: "movie_id phải là số nguyên dương"
+                invalid_cinema_id:
+                  summary: cinema_id không hợp lệ
+                  value:
+                    error: "cinema_id phải là số nguyên dương"
+    post:
+      summary: Khởi tạo suất chiếu mới (Admin)
+      description: Khởi tạo lịch chiếu mới cho phim tại phòng chiếu. Yêu cầu quyền Quản trị viên (Admin).
+      tags:
+        - Catalog & Showtime
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - movie_id
+                - room_id
+                - start_time
+                - price
+              properties:
+                movie_id:
+                  type: integer
+                  example: 1
+                room_id:
+                  type: integer
+                  example: 2
+                start_time:
+                  type: string
+                  example: "2026-10-25T19:30:00"
+                price:
+                  type: number
+                  example: 85000.00
+      responses:
+        '201':
+          description: Khởi tạo suất chiếu thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Showtime added successfully"
+                  showtime_id:
+                    type: integer
+                    example: 15
+        '400':
+          description: Lỗi trùng lịch chiếu hoặc dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                overlapping_showtime:
+                  summary: Trùng lịch chiếu trong cùng phòng
+                  value:
+                    error: "Lịch chiếu trùng trong cùng phòng"
+                past_start_time:
+                  summary: Thời gian ở quá khứ
+                  value:
+                    error: "Giờ bắt đầu phải nằm trong tương lai"
+                room_not_found:
+                  summary: Phòng chiếu không tồn tại
+                  value:
+                    error: "Phòng chiếu không tồn tại"
+                movie_not_found:
+                  summary: Phim không tồn tại
+                  value:
+                    error: "Phim không tồn tại"
+                invalid_price:
+                  summary: Giá vé không hợp lệ
+                  value:
+                    error: "Giá vé không hợp lệ"
+                invalid_time_format:
+                  summary: Sai định dạng thời gian
+                  value:
+                    error: "start_time phải có dạng 2026-10-10T19:00:00"
+                database_error:
+                  summary: Thất bại khi lưu vào CSDL
+                  value:
+                    error: "Không thể tạo lịch chiếu: Database error"
+        '401':
+          description: Chưa xác thực hoặc Token không hợp lệ / hết hạn
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+              examples:
+                missing_token:
+                  summary: Thiếu token xác thực
+                  value:
+                    status: "error"
+                    message: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+                invalid_token:
+                  summary: Token không hợp lệ hoặc đã hết hạn
+                  value:
+                    status: "error"
+                    message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Quản trị viên)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+        '415':
+          description: Header không phải application/json
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Cần gửi application/json"
+
+  /showtimes/{showtime_id}:
+    delete:
+      summary: Xóa suất chiếu chưa có đơn/vé liên quan (Admin)
+      description: Xóa suất chiếu chưa có đơn hàng hoặc vé liên quan. Yêu cầu quyền Quản trị viên (Admin).
+      tags:
+        - Catalog & Showtime
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: showtime_id
+          in: path
+          required: true
+          description: ID của suất chiếu cần xóa
+          schema:
+            type: integer
+            example: 15
+      responses:
+        '204':
+          description: Xóa suất chiếu thành công
+        '401':
+          description: Chưa xác thực hoặc Token không hợp lệ / hết hạn
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+              examples:
+                missing_token:
+                  summary: Thiếu token xác thực
+                  value:
+                    status: "error"
+                    message: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
+                invalid_token:
+                  summary: Token không hợp lệ hoặc đã hết hạn
+                  value:
+                    status: "error"
+                    message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Quản trị viên)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+        '404':
+          description: Không tìm thấy suất chiếu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Không tìm thấy suất chiếu"
+        '409':
+          description: Xung đột dữ liệu hoặc lỗi khi xóa suất chiếu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              examples:
+                has_tickets:
+                  summary: Suất chiếu đã có vé bán ra
+                  value:
+                    error: "Không thể xóa suất chiếu đã có đơn/vé liên quan"
+                delete_failed:
+                  summary: Thất bại khi xóa khỏi CSDL
+                  value:
+                    error: "Không thể xóa suất chiếu: Database error"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Header Authorization: Bearer <token> (hoặc header x-access-token) cấp từ API Login"
