@@ -1,20 +1,17 @@
-"""
-Tuân thủ Repository Pattern: Services gọi user_repository để thao tác database,
-KHÔNG truy cập db.session trực tiếp.
-"""
+import os
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask import current_app
 from app.repositories import user_repository
 
 
-def generate_token(user_id, role):
+def generate_token(user_id, role, secret_key=None):
     """
     Tạo token xác thực bảo mật khớp 100% với URLSafeTimedSerializer
     được sử dụng bởi app/middleware/auth.py.
     """
-    secret_key = current_app.config.get('SECRET_KEY', 'default-dev-key')
+    if not secret_key:
+        secret_key = os.getenv('SECRET_KEY', 'default-dev-key')
     
-    # 1. Tạo token bằng itsdangerous URLSafeTimedSerializer chuẩn của Flask
+    # 1. Tạo token bằng itsdangerous URLSafeTimedSerializer chuẩn
     try:
         from itsdangerous import URLSafeTimedSerializer
         s = URLSafeTimedSerializer(secret_key)
@@ -75,7 +72,7 @@ def register_user(name, email, password):
     # Băm mật khẩu an toàn
     hashed_password = generate_password_hash(password)
 
-    # Lưu thông qua user_repository (Repository Pattern)
+    # Lưu thông qua user_repository
     new_user, err = user_repository.create(
         name=name.strip(),
         email=email,
@@ -179,3 +176,17 @@ def create_staff_user(name, email, password, role='STAFF'):
         return False, f"Lỗi khi tạo tài khoản nhân viên: {err}"
 
     return True, user_to_dict(new_staff)
+
+
+def delete_user(user_id):
+    """Xóa tài khoản người dùng qua repository (Dành cho Admin)"""
+    user = user_repository.get_by_id(user_id)
+    if not user:
+        return False, "Không tìm thấy người dùng."
+
+    success, err = user_repository.delete(user)
+    if not success:
+        return False, f"Lỗi khi xóa người dùng: {err}"
+
+    return True, "Xóa tài khoản thành công."
+

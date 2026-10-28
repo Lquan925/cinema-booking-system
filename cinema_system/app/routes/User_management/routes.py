@@ -150,3 +150,23 @@ def create_staff():
         "message": f"Tạo tài khoản {role} thành công!",
         "data": result
     }), 201
+
+
+@user_bp.route('/admin/users/<user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    """
+    [Admin xóa tài khoản người dùng]
+    Header: Authorization: Bearer <token_admin>
+    """
+    success, message = services.delete_user(user_id)
+    if not success:
+        status_code = 404 if "Không tìm thấy" in message else 500
+        return jsonify({
+            "status": "error",
+            "message": message
+        }), status_code
+
+    return jsonify({
+        "status": "success",
+        "message": message
+    }), 200
