@@ -131,7 +131,7 @@ cinema_system/
 │   ├── catalog_and_showtime.yaml  # OpenAPI Spec: Phim, Rạp & Lịch chiếu
 │   └── reports_and_analytics.yaml # OpenAPI Spec: Báo cáo & Thống kê (Admin)
 ├── migrations/                    # File versioning CSDL qua Flask-Migrate
-├── docker-compose.yml             # Cấu hình container MySQL, Redis, Adminer
+├── docker-compose.yml             # Cấu hình container Flask app, MySQL, Redis, Adminer
 ├── requirements.txt               # Danh sách thư viện Python
 ├── seed.py                        # Script khởi tạo CSDL mẫu & tài khoản test
 ├── run.py                         # Điểm chạy ứng dụng
@@ -156,50 +156,80 @@ cinema_system/
 ## 6. Hướng dẫn cài đặt & Khởi chạy
 
 ### Yêu cầu tiên quyết
-* [Python 3.9+](https://www.python.org/)
-* [Docker Desktop](https://www.docker.com/)
+* [Docker Desktop](https://www.docker.com/) — bắt buộc cho cả 2 cách (MySQL/Redis chạy trong Docker).
+* [Python 3.9+](https://www.python.org/) — chỉ cần khi chạy app local ở Cách B.
 
-### Bước 1: Khởi động MySQL & Redis bằng Docker
+Có 2 cách chạy. **Chỉ chọn một trong hai**, không chạy đồng thời vì cả hai đều dùng cổng `5000`.
+
+### Cách A: Chạy toàn bộ hệ thống bằng Docker (khuyến nghị)
+
 ```bash
-docker-compose up -d
+cd cinema_system
+docker compose up -d --build
 ```
-* **MySQL:** Cổng `3307` (database: `cinema_db`, user: `cinema_user`, password: `cinema_password`)
-* **Redis:** Cổng `6379`
-* **Adminer Web GUI:** Truy cập tại `http://localhost:8080`
 
-### Bước 2: Tạo môi trường ảo & Cài đặt thư viện
+Compose khởi động 4 service:
+
+| Service | Cổng | Mô tả |
+| :--- | :--- | :--- |
+| `app` | `5000` | Flask backend (Swagger UI tại `/api/docs`) |
+| `mysql-db` | `3307` | MySQL 8.0 (database `cinema_db`, user `cinema_user`, password `cinema_password`) |
+| `redis-cache` | `6379` | Redis 7 dùng cho seat lock |
+| `adminer` | `8080` | Giao diện quản trị CSDL |
+
+Lần chạy đầu tiên, tạo bảng và nạp dữ liệu mẫu **bên trong container**:
+
 ```bash
-# Tạo môi trường ảo
+docker compose exec app python seed.py
+```
+
+Kiểm tra trạng thái và log:
+
+```bash
+docker compose ps
+docker compose logs -f app
+```
+
+Dừng hệ thống: `docker compose down` (thêm `-v` nếu muốn xóa luôn dữ liệu MySQL/Redis).
+
+> Container `app` dùng biến môi trường khai báo trong `docker-compose.yml`; không cần tạo file `.env` khi chạy Cách A.
+
+### Cách B: Chạy app local, MySQL/Redis bằng Docker
+
+Dùng cách này khi cần sửa code và chạy lại nhanh mà không build image. Nếu service `app` đang chạy, dừng nó trước để tránh chiếm cổng `5000`:
+
+```bash
+cd cinema_system
+docker compose stop app
+docker compose up -d mysql-db redis-cache adminer
+```
+
+Tạo môi trường ảo, cài thư viện và cấu hình biến môi trường:
+
+```bash
 python -m venv venv
 
-# Kích hoạt môi trường ảo (Windows PowerShell):
+# Windows PowerShell:
 .\venv\Scripts\Activate.ps1
-# (Trên macOS/Linux: source venv/bin/activate)
+# macOS/Linux:
+# source venv/bin/activate
 
-# Cài đặt thư viện phụ thuộc
 pip install -r requirements.txt
-```
-
-### Bước 3: Cấu hình biến môi trường
-Sao chép `.env.example` thành `.env`:
-```bash
 cp .env.example .env
 ```
 
-### Bước 4: Khởi tạo CSDL mẫu (Seed Data)
-Chạy script để tự động tạo bảng và nạp dữ liệu phim, rạp, suất chiếu, người dùng mẫu:
+Khởi tạo CSDL mẫu rồi chạy server:
+
 ```bash
 python seed.py
-```
-
-### Bước 5: Khởi chạy Server
-```bash
 python run.py
 ```
-Server sẽ chạy tại: **`http://127.0.0.1:5000`**
 
-### Bước 6: Mở tài liệu Swagger UI
-Sau khi server chạy, mở trình duyệt:
+Server chạy tại **`http://127.0.0.1:5000`**. Lưu ý `.env.example` trỏ MySQL tới `localhost:3307` và Redis tới `localhost:6379`, khớp với cổng compose đã map.
+
+### Mở tài liệu Swagger UI
+
+Sau khi server (container hoặc local) đã chạy, mở trình duyệt:
 
 * **Swagger UI:** **`http://127.0.0.1:5000/api/docs`**
 * Chọn module ở thanh trên cùng (User, Booking, Orders, Catalog, Reports).
