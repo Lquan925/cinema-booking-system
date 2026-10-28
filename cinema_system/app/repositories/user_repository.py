@@ -96,6 +96,29 @@ def update(user, **kwargs):
         return None, str(e)
 
 
+def debit_wallet(user_id, amount):
+    """
+    Trừ tiền ví và cộng 1 điểm tích lũy trong một câu lệnh nguyên tử.
+    Trả về False nếu ví không đủ số dư (không có dòng nào bị cập nhật).
+    """
+    try:
+        updated = User.query.filter(
+            User.user_id == user_id,
+            User.wallet_balance >= amount,
+        ).update(
+            {
+                'wallet_balance': User.wallet_balance - amount,
+                'loyalty_points': User.loyalty_points + 1,
+            },
+            synchronize_session=False,
+        )
+        db.session.commit()
+        return updated == 1
+    except Exception:
+        db.session.rollback()
+        return False
+
+
 def get_all(role=None, search=None, page=None, per_page=None):
     """
     Lấy danh sách người dùng với các bộ lọc tuỳ chọn.

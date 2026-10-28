@@ -44,13 +44,19 @@ def create_order(user_id, ticket_ids):
 def process_payment(order_id):
     """
     Xử lý thanh toán cho đơn hàng:
-    - Kiểm tra order tồn tại
-    - Kiểm tra số dư ví người dùng
-    - Trừ tiền, cộng điểm, cập nhật trạng thái
+    - Chỉ đơn ở trạng thái pending mới được thanh toán (chống trùng đơn).
+    - Giành quyền thanh toán nguyên tử trước khi trừ tiền.
+    - Kiểm tra số dư ví, trừ tiền, cộng điểm, cập nhật trạng thái vé.
     """
     order = booking_repository.get_order_by_id(order_id)
     if not order:
         return None, "Order not found"
+
+    status = (order.status or '').lower()
+    if status == 'success':
+        return None, "Order already paid"
+    if status != 'pending':
+        return None, "Order is not payable"
 
     user = user_repository.get_by_id(order.user_id)
     if not user:
@@ -59,14 +65,14 @@ def process_payment(order_id):
     if user.wallet_balance < order.total_amount:
         return None, "Insufficient balance"
 
-    # Cập nhật số dư và điểm thưởng
-    user_repository.update(user,
-        loyalty_points=user.loyalty_points + 1,
-        wallet_balance=user.wallet_balance - order.total_amount
-    )
+    # Request thứ hai (double-click / retry) sẽ thất bại tại đây
+    if not booking_repository.claim_order_for_payment(order.order_id):
+        return None, "Order already paid"
 
-    # Cập nhật trạng thái order
-    booking_repository.update_order(order, status='success')
+    # Trừ tiền + cộng điểm nguyên tử; hoàn trạng thái đơn nếu ví không đủ
+    if not user_repository.debit_wallet(user.user_id, order.total_amount):
+        booking_repository.revert_order_to_pending(order.order_id)
+        return None, "Insufficient balance"
 
     # Cập nhật trạng thái vé và tạo QR code
     tickets = booking_repository.get_tickets_by_order(order_id)

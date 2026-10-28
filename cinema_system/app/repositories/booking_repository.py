@@ -319,6 +319,26 @@ def update_order(order, **kwargs):
         return None, str(e)
 
 
+def claim_order_for_payment(order_id):
+    """
+    Nguyên tử: chuyển đơn pending -> success.
+    Trả về True nếu request hiện tại là request duy nhất giành được quyền thanh toán.
+    """
+    updated = Order.query.filter_by(order_id=order_id, status='pending').update(
+        {'status': 'success'}
+    )
+    db.session.commit()
+    return updated == 1
+
+
+def revert_order_to_pending(order_id):
+    """Hoàn trạng thái đơn về pending khi bước trừ tiền thất bại."""
+    Order.query.filter_by(order_id=order_id, status='success').update(
+        {'status': 'pending'}
+    )
+    db.session.commit()
+
+
 def commit():
     """Commit session hiện tại (dùng khi cần commit batch thay đổi)"""
     db.session.commit()

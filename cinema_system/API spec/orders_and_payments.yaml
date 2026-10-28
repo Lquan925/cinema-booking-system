@@ -74,6 +74,9 @@ paths:
       description: |
         Trừ tiền ví của người dùng, cộng điểm tích lũy và cập nhật trạng thái
         đơn hàng/vé. Yêu cầu ví có đủ số dư.
+
+        Mỗi đơn chỉ được thanh toán một lần: gọi lại API cho đơn đã `success`
+        sẽ trả về `409 Conflict` và không trừ tiền thêm.
       tags:
         - Orders & Payments
       security:
@@ -111,6 +114,19 @@ paths:
                 user_not_found:
                   value:
                     message: "User not found"
+        '409':
+          description: Đơn đã được thanh toán hoặc không ở trạng thái có thể thanh toán
+          content:
+            application/json:
+              examples:
+                already_paid:
+                  summary: Đơn đã thanh toán trước đó
+                  value:
+                    message: "Order already paid"
+                not_payable:
+                  summary: Đơn không ở trạng thái pending
+                  value:
+                    message: "Order is not payable"
         '500':
           description: Lỗi khác trong quá trình thanh toán
           content:

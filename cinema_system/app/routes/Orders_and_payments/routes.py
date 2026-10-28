@@ -36,6 +36,10 @@ def process_payment(order_id):
         return jsonify({"message": error}), 404
     if error == "User not found":
         return jsonify({"message": error}), 404
+    if error == "Order already paid":
+        return jsonify({"message": error}), 409
+    if error == "Order is not payable":
+        return jsonify({"message": error}), 409
     if error == "Insufficient balance":
         return jsonify({"message": error}), 400
     if error:
