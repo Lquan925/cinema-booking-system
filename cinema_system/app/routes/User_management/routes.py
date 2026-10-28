@@ -155,7 +155,7 @@ def create_staff():
 @user_bp.route('/admin/users/<user_id>', methods=['DELETE'])
 def delete_user(user_id):
     """
-    [Admin xóa tài khoản người dùng]
+    Admin xóa tài khoản người dùng
     Header: Authorization: Bearer <token_admin>
     """
     success, message = services.delete_user(user_id)
