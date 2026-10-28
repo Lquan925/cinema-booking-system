@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: Reports and Analytics API
+  description: Tài liệu đặc tả API cho module Báo cáo và Thống kê (Reports & Analytics) dành cho Quản trị viên trong hệ thống Cinema Booking.
+  version: 1.0.0
+
+servers:
+  - url: /api
+    description: Base URL của hệ thống API
+
+paths:
+  /admin/reports/overview:
+    get:
+      summary: Báo cáo tổng quan Dashboard
+      description: Lấy các số liệu KPI tổng hợp toàn hệ thống (doanh thu, số vé, đơn hàng, khách hàng, phim, cụm rạp) và 5 đơn hàng thành công gần nhất.
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lấy dữ liệu tổng quan thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                data:
+                  total_revenue: 15450000.0
+                  total_tickets_sold: 150
+                  total_orders: 85
+                  total_customers: 42
+                  total_movies: 12
+                  total_cinemas: 4
+                  recent_orders:
+                    - order_id: 105
+                      user_id: 8
+                      customer_name: "Nguyen Van A"
+                      total_amount: 180000.0
+                      status: "success"
+                    - order_id: 104
+                      user_id: 5
+                      customer_name: "Tran Thi B"
+                      total_amount: 90000.0
+                      status: "success"
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+        '500':
+          description: Lỗi máy chủ khi tạo báo cáo
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Lỗi khi tạo báo cáo tổng quan: Database error"
+
+  /admin/reports/revenue:
+    get:
+      summary: Báo cáo doanh thu chi tiết
+      description: Thống kê doanh thu theo bộ lọc thời gian, cụm rạp, bộ phim. Trả về tổng doanh thu, phân tích doanh thu theo từng ngày và theo từng cụm rạp.
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          description: Ngày bắt đầu lọc theo thời gian suất chiếu (định dạng YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Ngày kết thúc lọc theo thời gian suất chiếu (định dạng YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+        - name: cinema_id
+          in: query
+          required: false
+          description: ID cụm rạp cần lọc (phải là số nguyên > 0)
+          schema:
+            type: integer
+          example: 1
+        - name: movie_id
+          in: query
+          required: false
+          description: ID bộ phim cần lọc (phải là số nguyên > 0)
+          schema:
+            type: integer
+          example: 2
+      responses:
+        '200':
+          description: Lấy dữ liệu báo cáo doanh thu thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                data:
+                  total_revenue: 5200000.0
+                  total_tickets_sold: 52
+                  total_orders: 28
+                  daily_breakdown:
+                    - date: "2026-10-25"
+                      revenue: 2100000.0
+                      tickets_sold: 21
+                      orders_count: 12
+                    - date: "2026-10-26"
+                      revenue: 3100000.0
+                      tickets_sold: 31
+                      orders_count: 16
+                  cinema_breakdown:
+                    - cinema_id: 1
+                      cinema_name: "CGV Vincom Ba Trieu"
+                      revenue: 3200000.0
+                      tickets_sold: 32
+                    - cinema_id: 2
+                      cinema_name: "BHD Star Pham Ngoc Thach"
+                      revenue: 2000000.0
+                      tickets_sold: 20
+        '400':
+          description: Tham số query không hợp lệ (sai định dạng ngày, start_date > end_date, tham số id không hợp lệ)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Ngày bắt đầu ('start_date') không được lớn hơn ngày kết thúc ('end_date')!"
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+
+  /admin/reports/movies:
+    get:
+      summary: Báo cáo hiệu suất phim & Top phim ăn khách
+      description: Xếp hạng các phim có doanh thu và số lượng vé bán cao nhất theo thời gian.
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          description: Ngày bắt đầu lọc (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Ngày kết thúc lọc (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+        - name: limit
+          in: query
+          required: false
+          description: Số lượng phim tối đa muốn lấy (mặc định 10, tối đa 100)
+          schema:
+            type: integer
+            default: 10
+          example: 10
+      responses:
+        '200':
+          description: Lấy danh sách top phim thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                total: 2
+                data:
+                  - movie_id: 1
+                    title: "Avatar: The Way of Water"
+                    poster_url: "https://example.com/avatar2.jpg"
+                    duration_minutes: 192
+                    age_rating: "PG-13"
+                    total_revenue: 8400000.0
+                    total_tickets_sold: 84
+                    total_showtimes: 15
+                  - movie_id: 3
+                    title: "Oppenheimer"
+                    poster_url: "https://example.com/oppenheimer.jpg"
+                    duration_minutes: 180
+                    age_rating: "R"
+                    total_revenue: 4500000.0
+                    total_tickets_sold: 45
+                    total_showtimes: 10
+        '400':
+          description: Tham số truy vấn không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Tham số 'limit' phải là số nguyên dương lớn hơn 0!"
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+
+  /admin/reports/cinemas:
+    get:
+      summary: Báo cáo hiệu suất kinh doanh theo cụm rạp
+      description: Thống kê hiệu suất từng rạp chiếu bao gồm số phòng, số suất chiếu, tổng vé bán ra và doanh thu (sắp xếp giảm dần theo doanh thu).
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          description: Ngày bắt đầu lọc (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Ngày kết thúc lọc (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+      responses:
+        '200':
+          description: Lấy danh sách hiệu suất rạp thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                total: 2
+                data:
+                  - cinema_id: 1
+                    cinema_name: "CGV Vincom Ba Trieu"
+                    address: "191 Ba Trieu, Hai Ba Trung, Ha Noi"
+                    total_rooms: 5
+                    total_showtimes: 24
+                    tickets_sold: 180
+                    revenue: 18000000.0
+                  - cinema_id: 2
+                    cinema_name: "BHD Star Pham Ngoc Thach"
+                    address: "02 Pham Ngoc Thach, Dong Da, Ha Noi"
+                    total_rooms: 3
+                    total_showtimes: 12
+                    tickets_sold: 90
+                    revenue: 9000000.0
+        '400':
+          description: Tham số ngày không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Tham số 'start_date' không đúng định dạng YYYY-MM-DD!"
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Chỉ dành cho Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Gửi chuỗi JWT Token của Quản trị viên trong Header theo cú pháp: Authorization: Bearer <admin_token>"

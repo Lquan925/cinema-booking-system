@@ -100,7 +100,6 @@ def get_top_movies_report(start_date=None, end_date=None, limit=10):
     if err:
         return False, err
 
-    # Giới hạn limit tối đa để tránh query quá nặng
     if limit_val > 100:
         limit_val = 100
 
