@@ -1,57 +1,36 @@
-# 🎬 Cinema Booking System (Hệ Thống Đặt Vé Xem Phim)
+# Báo cáo dự án Cinema Booking System
 
-Hệ thống backend API quản lý và đặt vé xem phim trực tuyến được xây dựng theo kiến trúc phân lớp (**Layered / Modular Architecture**), tích hợp cơ chế giữ ghế theo thời gian thực (**Real-time Seat Locking**) sử dụng **Redis** để chống tranh chấp vé (Race Condition), cùng cơ sở dữ liệu quan hệ **MySQL**.
+## 1. Tóm tắt dự án
 
----
+Cinema Booking System là backend REST API cho nghiệp vụ đặt vé xem phim:
 
-## 📑 Mục lục
-- [1. Tính năng chính](#1-tính-năng-chính)
-- [2. Kiến trúc hệ thống](#2-kiến-trúc-hệ-thống)
-- [3. Công nghệ sử dụng](#3-công-nghệ-sử-dụng)
-- [4. Cấu trúc thư mục](#4-cấu-trúc-thư-mục)
-- [5. Mô hình Cơ sở dữ liệu](#5-mô-hình-cơ-sở-dữ-liệu)
-- [6. Hướng dẫn cài đặt & Khởi chạy](#6-hướng-dẫn-cài-đặt--khởi-chạy)
-- [7. Danh sách API chính](#7-danh-sách-api-chính)
-- [8. Luồng đặt vé & Thanh toán](#8-luồng-đặt-vé--thanh-toán)
+- Quản lý người dùng, đăng nhập, ví điện tử và điểm tích lũy.
+- Quản lý phim, rạp, phòng chiếu, ghế và lịch chiếu.
+- Giữ ghế tạm thời bằng Redis để chống double-booking.
+- Tạo đơn hàng, thanh toán bằng ví, sinh mã QR cho vé.
+- Báo cáo doanh thu và hiệu suất bán vé cho admin.
 
----
+## 2. Công nghệ sử dụng
 
-## 1. Tính năng chính
+| Thành phần | Công nghệ | Ghi chú |
+| :--- | :--- | :--- |
+| Ngôn ngữ | Python 3.9+ | Docker dùng `python:3.11-slim` |
+| Web framework | Flask | Blueprint theo module |
+| ORM | Flask-SQLAlchemy | Model trong `app/models.py` |
+| Migration | Flask-Migrate / Alembic | Migration hiện chưa đầy đủ |
+| Database | MySQL 8.0 | Chạy trong Docker, host port `3307` |
+| Cache / lock | Redis 7 | Giữ ghế tạm thời, TTL |
+| DB GUI | Adminer | Chỉ dùng khi phát triển |
+| Token | itsdangerous `URLSafeTimedSerializer` | Token có hạn 24 giờ |
+| Hash mật khẩu | `werkzeug.security` | scrypt/pbkdf2 |
+| Đóng gói | Docker, Docker Compose | Có Dockerfile và compose |
+| Tài liệu API | OpenAPI 3.0.3 + Swagger UI | 5 file YAML trong `cinema_system/API spec/` |
 
-### 👤 Quản lý người dùng (`User_management`)
-* Đăng ký tài khoản, đăng nhập nhận Bearer Token an toàn.
-* Xem thông tin cá nhân, cập nhật mật khẩu/họ tên.
-* Quản lý ví điện tử (`wallet_balance`) và điểm tích lũy thành viên (`loyalty_points`).
-* **Admin:** Quản lý toàn bộ người dùng, cấp tài khoản nhân viên quầy (`STAFF`).
+## 3. Kiến trúc và luồng request
 
-### 🍿 Quản lý Phim & Lịch chiếu (`Catalog_and_showtime`)
-* Tra cứu danh sách phim đang chiếu, chi tiết thời lượng, độ tuổi, trailer, poster.
-* Danh mục cụm rạp, phòng chiếu (2D, 3D, IMAX).
-* Tra cứu lịch chiếu lọc theo ngày chiếu (`date`), phim (`movie_id`) hoặc rạp (`cinema_id`).
-* **Admin:** Thêm phim mới, thêm/xóa lịch chiếu.
+### 3.1 Kiến trúc
 
-### 💺 Sơ đồ ghế & Khóa ghế Realtime (`Booking_and_seat`)
-* Tải sơ đồ ghế của suất chiếu với trạng thái trực quan: **Trống (Available)**, **Đang giữ (Locked)**, **Đã bán (Booked)**.
-* **Cơ chế Distributed Lock bằng Redis:** Khóa tạm thời 1 hoặc nhiều ghế khi khách chọn trong 5 - 10 phút (TTL).
-* Tự động giải phóng ghế khi hết thời gian giữ chỗ hoặc khi khách chủ động hủy, chống đặt trùng vé (Double-booking).
-
-### 💳 Đơn hàng & Thanh toán (`Orders_and_payments`)
-* Tạo đơn hàng (`Order`) từ các ghế đã được khóa thành công.
-* Xử lý thanh toán trừ tiền trực tiếp qua số dư ví ảo của khách hàng.
-* Chuyển trạng thái vé sang `confirmed` và tự động sinh mã QR (`qr_code_url`) vé điện tử.
-* Tra cứu lịch sử đơn hàng và vé đã mua.
-
-### 📊 Báo cáo & Thống kê (`Reports_and_Analytics`)
-* Báo cáo doanh thu theo thời gian, theo rạp cho Quản trị viên.
-* Báo cáo top các bộ phim bán chạy nhất.
-
----
-
-## 2. Kiến trúc hệ thống
-
-Hệ thống áp dụng mô hình kiến trúc phân lớp (**Layered Architecture**):
-
-```
+```text
 Client (Web / Mobile / Postman)
             │
             ▼
@@ -88,231 +67,249 @@ Client (Web / Mobile / Postman)
 └──────────────┘ └──────────────┘
 ```
 
----
+### 3.2 Chức năng của các tầng
 
-## 3. Công nghệ sử dụng
+| Tầng | Chức năng |
+| :--- | :--- |
+| Middleware | Xác thực token, gán `g.current_user`, chặn admin cho `/api/admin/*` |
+| Routes | Chuyển HTTP ↔ service, validate input cơ bản, map lỗi |
+| Services | Nghiệp vụ, kiểm tra quy tắc, điều phối repository |
+| Repositories | Truy vấn/ghi MySQL hoặc Redis |
+| Models | Định nghĩa bảng và quan hệ |
 
-* **Ngôn ngữ & Framework:** Python 3, [Flask](https://flask.palletsprojects.com/)
-* **ORM & Migration:** Flask-SQLAlchemy, Flask-Migrate (Alembic)
-* **Cơ sở dữ liệu chính:** MySQL 8.0
-* **Bộ nhớ đệm & Lock ghế:** Redis 7 (Alpine)
-* **Công cụ quản trị CSDL:** Adminer
-* **Ảo hóa & Triển khai:** Docker & Docker Compose
+### 3.3 Luồng request điển hình
 
----
+1. Client gửi request tới Flask.
+2. `authenticate()` trong `before_request` kiểm tra endpoint public hay cần token.
+3. Token hợp lệ → middleware gán `g.current_user`.
+4. Blueprint tương ứng nhận request, parse JSON/query params.
+5. Route gọi service.
+6. Service gọi một hoặc nhiều repository.
+7. Repository đọc/ghi MySQL hoặc Redis.
+8. Route trả JSON + HTTP status.
 
 ## 4. Cấu trúc thư mục
 
+```text
+cinema-booking-system/
+├── README.md                       # Giới thiệu, kiến trúc tổng quan, hướng dẫn chạy
+├── TECHNICAL.md                    # Tài liệu kỹ thuật bàn giao Phase 2
+├── .gitignore
+└── cinema_system/
+    ├── app/
+    │   ├── __init__.py             # create_app, db, migrate, đăng ký blueprint
+    │   ├── docs.py                 # Swagger UI + serve file OpenAPI
+    │   ├── models.py               # 8 SQLAlchemy models
+    │   ├── redis_client.py         # Singleton Redis client
+    │   ├── security.py             # Sinh token đăng nhập
+    │   ├── middleware/
+    │   │   └── auth.py             # Xác thực/phân quyền tập trung
+    │   ├── repositories/
+    │   │   ├── booking_repository.py
+    │   │   ├── user_repository.py
+    │   │   ├── analytics_repository.py
+    │   │   └── seat_lock_repository.py
+    │   └── routes/
+    │       ├── User_management/    # register, login, profile, admin users
+    │       ├── Catalog_and_showtime/ # movies, cinemas, showtimes
+    │       ├── Booking_and_seat/   # seat map, lock/unlock
+    │       ├── Orders_and_payments/# orders, payment, history
+    │       └── Reports_and_Analytics/ # admin reports
+    ├── API spec/                   # 5 file OpenAPI YAML
+    ├── migrations/                 # Alembic; hiện chỉ có migration Users/Cinemas
+    ├── tests/
+    │   └── test_booking_seats.py   # 8 test ghế; đang bị .gitignore loại bỏ
+    ├── Dockerfile
+    ├── docker-compose.yml
+    ├── seed.py                     # db.drop_all + db.create_all + dữ liệu mẫu
+    ├── requirements.txt
+    ├── run.py                      # Flask dev server, debug=True
+    └── .env.example
 ```
-cinema_system/
-├── app/
-│   ├── __init__.py                # Khởi tạo Flask app, đăng ký Middleware & Blueprints
-│   ├── docs.py                    # Swagger UI tại /api/docs
-│   ├── models.py                  # Định nghĩa Models CSDL (SQLAlchemy)
-│   ├── redis_client.py            # Singleton kết nối Redis
-│   ├── security.py                # Sinh Bearer Token sau khi đăng nhập
-│   ├── middleware/
-│   │   └── auth.py                # Middleware xác thực & phân quyền tập trung
-│   ├── repositories/
-│   │   ├── booking_repository.py       # Truy vấn ghế, lịch chiếu, vé, đơn hàng
-│   │   ├── seat_lock_repository.py     # Truy cập Redis (khóa/mở khóa ghế)
-│   │   ├── analytics_repository.py     # Truy vấn tổng hợp báo cáo
-│   │   └── user_repository.py          # Xử lý truy vấn người dùng
-│   └── routes/
-│       ├── User_management/       # APIs Đăng ký, Đăng nhập, Profile, Admin User
-│       ├── Catalog_and_showtime/  # APIs Phim, Rạp, Lịch chiếu
-│       ├── Booking_and_seat/      # APIs Sơ đồ ghế, Khóa/Mở khóa ghế
-│       ├── Orders_and_payments/   # APIs Đơn hàng, Thanh toán, Lịch sử
-│       └── Reports_and_Analytics/ # APIs Báo cáo thống kê (Admin)
-├── API spec/
-│   ├── user_management.yaml       # OpenAPI Spec: Người dùng & Xác thực
-│   ├── booking_and_seat.yaml      # OpenAPI Spec: Sơ đồ ghế & Khóa/Mở khóa ghế
-│   ├── orders_and_payments.yaml   # OpenAPI Spec: Đơn hàng & Thanh toán
-│   ├── catalog_and_showtime.yaml  # OpenAPI Spec: Phim, Rạp & Lịch chiếu
-│   └── reports_and_analytics.yaml # OpenAPI Spec: Báo cáo & Thống kê (Admin)
-├── migrations/                    # File versioning CSDL qua Flask-Migrate
-├── docker-compose.yml             # Cấu hình container Flask app, MySQL, Redis, Adminer
-├── requirements.txt               # Danh sách thư viện Python
-├── seed.py                        # Script khởi tạo CSDL mẫu & tài khoản test
-├── run.py                         # Điểm chạy ứng dụng
-└── .env.example                   # Mẫu cấu hình biến môi trường
+
+> `tests/` đang bị `.gitignore` loại trừ nên không có trong repo public. Đây là lỗi cần sửa ở Phase 2.
+
+## 5. Mô hình dữ liệu
+
+![Sơ đồ quan hệ thực thể (ERD)](https://media.discordapp.net/attachments/1216040842213589033/1565028587441098792/image.png?ex=6ae369f4&is=6ae21874&hm=2ad7c62aa9b7aded27a32e87c065d8536b7a21ed53ea88ba1f5a9cbc46d077fb&=&format=webp&quality=lossless)
+
+<!-- Dán link ảnh ERD vào PASTE_IMAGE_URL_ERD -->
+
+## 6. API và Swagger
+
+### 6.1 Danh sách endpoint
+
+| Method | Path | Xác thực | Quyền | Ghi chú |
+| :--- | :--- | :--- | :--- | :--- |
+| POST | `/api/auth/register` | Public | — | Đăng ký customer |
+| POST | `/api/auth/login` | Public | — | Trả token + user |
+| GET | `/api/users/profile` | Token | User | Thông tin cá nhân |
+| PUT | `/api/users/profile` | Token | User | Đổi tên/mật khẩu |
+| GET | `/api/admin/users` | Token | Admin | Danh sách user, có filter/phân trang |
+| POST | `/api/admin/users` | Token | Admin | Tạo staff/admin |
+| DELETE | `/api/admin/users/<user_id>` | Token | Admin | Xóa user |
+| GET | `/api/movies` | Public | — | Danh sách phim |
+| GET | `/api/cinemas` | Public | — | Danh sách rạp |
+| GET | `/api/showtimes` | Public | — | Lọc `date`, `movie_id`, `cinema_id` |
+| POST | `/api/movies` | Token | Admin* | *Route tự kiểm tra role |
+| POST | `/api/showtimes` | Token | Admin* | *Route tự kiểm tra role |
+| DELETE | `/api/showtimes/<id>` | Token | Admin* | *Route tự kiểm tra role |
+| GET | `/api/showtimes/<id>/seats` | Public | — | Sơ đồ ghế + trạng thái realtime |
+| POST | `/api/booking/lock-seat` | Token | User | Khóa 1/nhiều ghế |
+| POST | `/api/booking/unlock-seat` | Token | User | Mở khóa ghế |
+| POST | `/api/orders` | Token | User | Tạo order từ `ticket_ids` |
+| POST | `/api/payments/process/<order_id>` | Token | User | Thanh toán bằng ví |
+| GET | `/api/orders/history` | Token | User | Lịch sử order |
+| GET | `/api/admin/reports/revenue` | Token | Admin | Báo cáo doanh thu |
+| GET | `/api/admin/reports/movies` | Token | Admin | Top phim |
+| GET | `/api/admin/reports/overview` | Token | Admin | Dashboard |
+| GET | `/api/admin/reports/cinemas` | Token | Admin | Hiệu suất rạp |
+
+## 7. Xác thực và phân quyền
+
+```text
+POST /api/auth/login
+ → User_management/services.authenticate_user(email, password)
+ → user_repository.get_by_email
+ → so khớp password hash
+ → security.generate_token(user_id, role, SECRET_KEY)
+ → trả {"token": "...", "user": {...}}
 ```
 
----
+### 7.1 Luồng đăng nhập
 
-## 5. Mô hình Cơ sở dữ liệu
+Token là chuỗi ký bằng `itsdangerous.URLSafeTimedSerializer`, payload gồm `user_id` và `role`, hạn `86400` giây (24 giờ).
 
-* **Users:** Quản lý tài khoản, mật khẩu băm, quyền hạn (`customer`, `staff`, `admin`), số dư ví, điểm tích lũy.
-* **Cinemas:** Tên rạp, địa chỉ, hotline.
-* **Rooms:** Phòng chiếu thuộc rạp, định dạng phòng (2D, 3D, IMAX...).
-* **Seats:** Ghế ngồi trong phòng (hàng ghế, số ghế, loại ghế: thường, VIP, đôi).
-* **Movies:** Thông tin phim (tiêu đề, thời lượng, giới hạn tuổi, poster, trailer, mô tả).
-* **Showtimes:** Suất chiếu gắn với phim, phòng chiếu, khung giờ bắt đầu/kết thúc và giá vé gốc.
-* **Orders:** Đơn hàng gắn với người dùng, tổng tiền, trạng thái (`pending`, `completed`, `cancelled`).
-* **Tickets:** Vé xem phim chi tiết theo suất chiếu, vị trí ghế ngồi, giá vé, mã QR và trạng thái.
+### 7.2 Middleware
 
----
+`app/middleware/auth.py` đăng ký `@app.before_request`:
 
-## 6. Hướng dẫn cài đặt & Khởi chạy
+1. Nếu endpoint public: cho qua; nếu có token thì cố gắn `g.current_user`.
+2. Trích token từ `Authorization: Bearer`, `x-access-token`.
+3. Nếu không có token: kiểm tra header `X-User-Id` (dev fallback).
+4. Giải mã token, lấy user từ DB; không hợp lệ → 401.
+5. Nếu path bắt đầu bằng `/api/admin/` và role không phải admin → 403.
+6. Gán `g.current_user` và cho qua.
 
-### Yêu cầu tiên quyết
-* [Docker Desktop](https://www.docker.com/) — bắt buộc cho cả 2 cách (MySQL/Redis chạy trong Docker).
-* [Python 3.9+](https://www.python.org/) — chỉ cần khi chạy app local ở Cách B.
+### 7.3 Phân quyền admin
 
-Có 2 cách chạy. **Chỉ chọn một trong hai**, không chạy đồng thời vì cả hai đều dùng cổng `5000`.
+- Nhóm `/api/admin/*`: middleware tự kiểm tra role.
+- `POST /api/movies`, `POST /api/showtimes`, `DELETE /api/showtimes/<id>`: route tự kiểm tra role (lặp code).
 
-### Cách A: Chạy toàn bộ hệ thống bằng Docker (khuyến nghị)
+## 8. Giữ ghế, đơn hàng và thanh toán
+
+### 8.1 Redis key
+
+| Key | Kiểu | Giá trị | TTL |
+| :--- | :--- | :--- | :--- |
+| `seat_lock:{showtime_id}:{seat_id}` | string | `user_id` đang giữ | 600 giây mặc định |
+| `user_locks:{user_id}:{showtime_id}` | set | danh sách `seat_id` user đang giữ | được expire theo TTL |
+
+### 8.2 Thuật toán lock ghế
+
+`POST /api/booking/lock-seat`:
+
+1. Validate `showtime_id`, `seat_ids`; loại bỏ trùng.
+2. Kiểm tra user và showtime tồn tại.
+3. Kiểm tra toàn bộ ghế thuộc phòng của showtime.
+4. Kiểm tra ghế đã có ticket chưa hủy chưa.
+5. Đồng bộ danh sách ghế user đang giữ; giới hạn tối đa 8 ghế/user/showtime.
+6. Với từng ghế: `SET seat_lock:... user_id NX EX ttl`.
+7. Nếu một ghế bị người khác giữ → rollback các ghế vừa khóa trong batch, trả 409.
+8. Thành công → cập nhật set `user_locks`, trả danh sách ghế + TTL.
+
+`POST /api/booking/unlock-seat`:
+
+- Có `seat_id`/`seat_ids`: chỉ mở khóa ghế thuộc user hiện tại; ghế của người khác → 403.
+- Không truyền danh sách: mở khóa toàn bộ ghế user đang giữ cho showtime.
+
+### 8.3 Trạng thái ghế trả về
+
+`GET /api/showtimes/<id>/seats` trả:
+
+- `sold`: đã có ticket không bị cancelled trong MySQL.
+- `locked`: đang có key Redis.
+- `available`: còn trống.
+- Kèm `locked_by`, `is_my_lock`, `expires_in_seconds`.
+
+Nếu Redis lỗi, service vẫn trả sơ đồ ghế và coi như không có lock tạm thời (degrade).
+
+### 8.4 Luồng đặt vé hiện tại
+
+```text
+1. POST /api/auth/login
+2. GET  /api/showtimes/{id}/seats
+3. POST /api/booking/lock-seat          (Redis)
+4. POST /api/orders {ticket_ids:[...]}  (MySQL)
+5. POST /api/payments/process/{order_id}
+```
+
+### 8.5 Thanh toán hiện tại
+
+`POST /api/payments/process/<order_id>`:
+
+1. Tìm order; chỉ order `pending` mới thanh toán.
+2. Lấy user từ `order.user_id`.
+3. Kiểm tra ví đủ tiền.
+4. `claim_order_for_payment` chuyển order → `success` nguyên tử.
+5. Trừ ví + cộng 1 điểm loyalty nguyên tử.
+6. Nếu trừ ví thất bại → revert order về `pending`.
+7. Cập nhật ticket → `ready`, sinh `qr_code_url`.
+
+## 9. Kiểm thử tải
+
+![Bảng kết quả kiểm thử tải](https://media.discordapp.net/attachments/1216040842213589033/1565028622777983036/image.png?ex=6ae369fc&is=6ae2187c&hm=bf173a6817a7aac5184aaeb9984fcfb74ed2540725c32fd5b7c48638e41892e3&=&format=webp&quality=lossless&width=768&height=230)
+
+<!-- Dán link ảnh kết quả load test vào PASTE_IMAGE_URL_LOAD_TEST -->
+
+## 10. Cài đặt
+
+### Chạy toàn bộ bằng Docker (khuyến nghị)
 
 ```bash
 cd cinema_system
 docker compose up -d --build
-```
-
-Compose khởi động 4 service:
-
-| Service | Cổng | Mô tả |
-| :--- | :--- | :--- |
-| `app` | `5000` | Flask backend (Swagger UI tại `/api/docs`) |
-| `mysql-db` | `3307` | MySQL 8.0 (database `cinema_db`, user `cinema_user`, password `cinema_password`) |
-| `redis-cache` | `6379` | Redis 7 dùng cho seat lock |
-| `adminer` | `8080` | Giao diện quản trị CSDL |
-
-Lần chạy đầu tiên, tạo bảng và nạp dữ liệu mẫu **bên trong container**:
-
-```bash
+# Lần đầu: tạo bảng + nạp dữ liệu mẫu trong container
 docker compose exec app python seed.py
 ```
 
-Kiểm tra trạng thái và log:
+Truy cập:
+
+- API: `http://localhost:5000`
+- Swagger UI: `http://localhost:5000/api/docs`
+
+Kiểm tra:
 
 ```bash
 docker compose ps
 docker compose logs -f app
 ```
 
-Dừng hệ thống: `docker compose down` (thêm `-v` nếu muốn xóa luôn dữ liệu MySQL/Redis).
+Dừng:
 
-> Container `app` dùng biến môi trường khai báo trong `docker-compose.yml`; không cần tạo file `.env` khi chạy Cách A.
+```bash
+docker compose down          # giữ dữ liệu
+docker compose down -v       # xóa luôn volume MySQL/Redis
+```
 
-### Cách B: Chạy app local, MySQL/Redis bằng Docker
+> `seed.py` gọi `db.drop_all()` trước khi tạo dữ liệu. Không chạy trên môi trường có dữ liệu thật. Phase 2 nên tách script seed khỏi flow deploy và dùng migration cho production.
 
-Dùng cách này khi cần sửa code và chạy lại nhanh mà không build image. Nếu service `app` đang chạy, dừng nó trước để tránh chiếm cổng `5000`:
+### Chạy app local, MySQL/Redis bằng Docker
 
 ```bash
 cd cinema_system
+# Nếu app container đang chạy, dừng để tránh chiếm cổng 5000
 docker compose stop app
 docker compose up -d mysql-db redis-cache adminer
-```
-
-Tạo môi trường ảo, cài thư viện và cấu hình biến môi trường:
-
-```bash
 python -m venv venv
-
 # Windows PowerShell:
 .\venv\Scripts\Activate.ps1
 # macOS/Linux:
 # source venv/bin/activate
-
 pip install -r requirements.txt
 cp .env.example .env
-```
-
-Khởi tạo CSDL mẫu rồi chạy server:
-
-```bash
 python seed.py
 python run.py
 ```
 
-Server chạy tại **`http://127.0.0.1:5000`**. Lưu ý `.env.example` trỏ MySQL tới `localhost:3307` và Redis tới `localhost:6379`, khớp với cổng compose đã map.
-
-### Mở tài liệu Swagger UI
-
-Sau khi server (container hoặc local) đã chạy, mở trình duyệt:
-
-* **Swagger UI:** **`http://127.0.0.1:5000/api/docs`**
-* Chọn module ở thanh trên cùng (User, Booking, Orders, Catalog, Reports).
-* Để gọi API bảo vệ: đăng nhập qua `POST /api/auth/login`, sao chép `token`,
-  bấm nút **Authorize** và dán token (không cần thêm chữ `Bearer`).
-* File OpenAPI gốc nằm trong thư mục `cinema_system/API spec/` và được phục vụ tại
-  `/api/docs/specs/<tên-file>.yaml`.
-
-> Swagger UI tải CSS/JS từ CDN jsDelivr nên cần kết nối Internet khi mở trang.
-
----
-
-## 7. Danh sách API chính
-
-### 1. Xác thực & Người dùng (`/api`)
-| Phương thức | Đường dẫn | Quyền hạn | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | Public | Đăng ký tài khoản khách hàng mới |
-| `POST` | `/api/auth/login` | Public | Đăng nhập hệ thống, cấp Bearer Token |
-| `GET` | `/api/users/profile` | Authenticated | Xem thông tin cá nhân, số dư ví, điểm thưởng |
-| `PUT` | `/api/users/profile` | Authenticated | Cập nhật họ tên hoặc đổi mật khẩu |
-| `GET` | `/api/admin/users` | Admin | Quản lý danh sách toàn bộ người dùng |
-| `POST` | `/api/admin/users` | Admin | Cấp tài khoản nhân viên quầy (`STAFF`) |
-
-### 2. Phim & Lịch chiếu (`/api`)
-| Phương thức | Đường dẫn | Quyền hạn | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/movies` | Public | Xem danh sách phim đang chiếu |
-| `GET` | `/api/cinemas` | Public | Xem danh sách cụm rạp |
-| `GET` | `/api/showtimes` | Public | Lọc lịch chiếu (`?date=`, `?movie_id=`, `?cinema_id=`) |
-| `POST` | `/api/movies` | Admin | Thêm phim mới |
-| `POST` | `/api/showtimes` | Admin | Thêm lịch chiếu mới |
-| `DELETE` | `/api/showtimes/<id>` | Admin | Xóa lịch chiếu chưa bán vé |
-
-### 3. Đặt ghế & Khóa ghế Realtime (`/api`)
-| Phương thức | Đường dẫn | Quyền hạn | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/showtimes/<id>/seats` | Public / Token | Xem sơ đồ trạng thái ghế của suất chiếu |
-| `POST` | `/api/booking/lock-seat` | Authenticated | Khóa tạm thời 1 hoặc nhiều ghế vào Redis (TTL) |
-| `POST` | `/api/booking/unlock-seat` | Authenticated | Mở khóa ghế khi khách hủy hoặc đổi ghế |
-
-### 4. Đơn hàng & Thanh toán (`/api`)
-| Phương thức | Đường dẫn | Quyền hạn | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/orders` | Authenticated | Tạo đơn hàng từ danh sách vé đã giữ |
-| `POST` | `/api/payments/process/<order_id>` | Authenticated | Thanh toán đơn hàng bằng ví điện tử |
-| `GET` | `/api/orders/history` | Authenticated | Xem lịch sử đơn hàng và vé đã đặt |
-
-### 5. Báo cáo & Thống kê (`/api/admin/reports`)
-| Phương thức | Đường dẫn | Quyền hạn | Mô tả |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/admin/reports/revenue` | Admin | Doanh thu theo thời gian, rạp, phim |
-| `GET` | `/api/admin/reports/movies` | Admin | Top phim theo doanh thu & vé bán |
-| `GET` | `/api/admin/reports/overview` | Admin | Số liệu tổng quan dashboard |
-| `GET` | `/api/admin/reports/cinemas` | Admin | Hiệu suất kinh doanh theo rạp |
-
----
-
-## 8. Luồng đặt vé & Thanh toán
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as Khách hàng
-    participant API as Backend API
-    participant Redis as Redis Cache
-    participant DB as MySQL Database
-
-    User->>API: 1. Đăng nhập (POST /api/auth/login)
-    API-->>User: Trả về Bearer Token
-    User->>API: 2. Xem sơ đồ ghế (GET /api/showtimes/{id}/seats)
-    API->>Redis: Kiểm tra ghế nào đang bị lock
-    API->>DB: Kiểm tra ghế nào đã thanh toán
-    API-->>User: Trả về trạng thái sơ đồ ghế
-    User->>API: 3. Khóa ghế mong muốn (POST /api/booking/lock-seat)
-    API->>Redis: Tạo khóa ghế (SETEX với TTL 10 phút)
-    API-->>User: Khóa ghế thành công
-    User->>API: 4. Tạo đơn hàng (POST /api/orders)
-    API->>DB: Tạo bản ghi Order & Tickets (Pending)
-    API-->>User: Trả về mã order_id
-    User->>API: 5. Thanh toán đơn hàng (POST /api/payments/process/{order_id})
-    API->>DB: Kiểm tra & trừ tiền trong ví điện tử
-    API->>DB: Cập nhật Order (completed), Ticket (confirmed)
-    API->>Redis: Xóa khóa tạm thời của các ghế
-    API-->>User: Thanh toán thành công, trả về vé và mã QR
-```
+`run.py` chạy Flask dev server tại `0.0.0.0:5000`, `debug=True`. Không dùng cấu hình này cho production.
