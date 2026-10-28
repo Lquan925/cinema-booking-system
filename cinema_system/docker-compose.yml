@@ -1,7 +1,6 @@
-version: '3.8'
 
 services:
-  # 1. Cơ sở dữ liệu quan hệ (Lưu vĩnh viễn)
+  # 1. Cơ sở dữ liệu quan hệ MySQL (Lưu vĩnh viễn)
   mysql-db:
     image: mysql:8.0
     container_name: cinema_mysql
@@ -15,8 +14,13 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  # 2. Bộ nhớ đệm & Giữ ghế Realtime (Lưu tạm thời)
+  # 2. Bộ nhớ đệm & Giữ ghế Realtime Redis (Lưu tạm thời)
   redis-cache:
     image: redis:7-alpine
     container_name: cinema_redis
@@ -25,8 +29,13 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # 3. Giao diện quản lý Database trên Web (Tiện ích đi kèm)
+  # 3. Giao diện quản lý Database trên Web
   adminer:
     image: adminer
     container_name: cinema_adminer
@@ -35,6 +44,23 @@ services:
       - "8080:8080"
     depends_on:
       - mysql-db
+
+  # 4. Ứng dụng Flask Backend
+  app:
+    build: .
+    container_name: cinema_backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - SQLALCHEMY_DATABASE_URI=mysql+pymysql://cinema_user:cinema_password@mysql-db:3306/cinema_db
+      - REDIS_URL=redis://redis-cache:6379/0
+      - SECRET_KEY=your-super-secret-key-change-in-production
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
 
 volumes:
   mysql_data:
