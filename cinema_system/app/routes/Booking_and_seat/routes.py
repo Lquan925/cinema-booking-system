@@ -1,8 +1,32 @@
 from flask import Blueprint, request, jsonify, g
 from . import services
+from .exceptions import (
+    BookingError,
+    RoomNotFound,
+    SeatLockConflict,
+    SeatLockForbidden,
+    SeatLockUnavailable,
+    ShowtimeNotFound,
+    UserNotFound,
+)
 
 # Gắn tiền tố /api cho toàn bộ các route trong module này
 booking_bp = Blueprint('booking', __name__, url_prefix='/api')
+
+
+def _error_response(error):
+    """Chuyển domain exception thành HTTP response tương ứng."""
+    if isinstance(error, (ShowtimeNotFound, RoomNotFound, UserNotFound)):
+        status_code = 404
+    elif isinstance(error, SeatLockForbidden):
+        status_code = 403
+    elif isinstance(error, SeatLockConflict):
+        status_code = 409
+    elif isinstance(error, SeatLockUnavailable):
+        status_code = 503
+    else:
+        status_code = 400
+    return jsonify({"error": str(error)}), status_code
 
 
 @booking_bp.route('/showtimes/<int:showtime_id>/seats', methods=['GET'])
@@ -14,9 +38,11 @@ def get_showtime_seats(showtime_id):
     - Or automatically detected from Bearer Token (g.current_user)
     """
     current_user_id = request.args.get('user_id', type=int) or getattr(getattr(g, 'current_user', None), 'user_id', None)
-    result = services.get_showtime_seats_service(showtime_id, current_user_id=current_user_id)
-    status_code = result.pop('status_code', 200)
-    return jsonify(result), status_code
+    try:
+        result = services.get_showtime_seats_service(showtime_id, current_user_id=current_user_id)
+    except BookingError as error:
+        return _error_response(error)
+    return jsonify(result), 200
 
 
 @booking_bp.route('/booking/lock-seat', methods=['POST'])
@@ -57,9 +83,11 @@ def api_lock_seat():
     except (ValueError, TypeError):
         ttl = services.DEFAULT_LOCK_TTL
 
-    result = services.lock_seat_service(user_id=user_id, showtime_id=showtime_id, seat_ids=seat_ids, ttl=ttl)
-    status_code = result.pop('status_code', 200)
-    return jsonify(result), status_code
+    try:
+        result = services.lock_seat_service(user_id=user_id, showtime_id=showtime_id, seat_ids=seat_ids, ttl=ttl)
+    except BookingError as error:
+        return _error_response(error)
+    return jsonify(result), 200
 
 
 @booking_bp.route('/booking/unlock-seat', methods=['POST'])
@@ -89,6 +117,8 @@ def api_unlock_seat():
     elif 'seat_id' in data:
         seat_ids = [data.get('seat_id')]
 
-    result = services.unlock_seat_service(user_id=user_id, showtime_id=showtime_id, seat_ids=seat_ids)
-    status_code = result.pop('status_code', 200)
-    return jsonify(result), status_code
+    try:
+        result = services.unlock_seat_service(user_id=user_id, showtime_id=showtime_id, seat_ids=seat_ids)
+    except BookingError as error:
+        return _error_response(error)
+    return jsonify(result), 200

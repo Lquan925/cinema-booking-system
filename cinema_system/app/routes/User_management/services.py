@@ -3,37 +3,7 @@ Tuân thủ Repository Pattern: Services gọi user_repository để thao tác d
 KHÔNG truy cập db.session trực tiếp.
 """
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask import current_app
 from app.repositories import user_repository
-
-
-def generate_token(user_id, role):
-    """
-    Tạo token xác thực bảo mật khớp 100% với URLSafeTimedSerializer
-    được sử dụng bởi app/middleware/auth.py.
-    """
-    secret_key = current_app.config.get('SECRET_KEY', 'default-dev-key')
-    
-    # 1. Tạo token bằng itsdangerous URLSafeTimedSerializer chuẩn của Flask
-    try:
-        from itsdangerous import URLSafeTimedSerializer
-        s = URLSafeTimedSerializer(secret_key)
-        return s.dumps({'user_id': str(user_id), 'role': str(role).upper()})
-    except Exception:
-        pass
-
-    # 2. Fallback nếu môi trường thiếu itsdangerous
-    import base64, json, hmac, hashlib, time
-    payload = {
-        'user_id': str(user_id),
-        'role': str(role).upper(),
-        'exp': int(time.time()) + 86400
-    }
-    payload_json = json.dumps(payload, separators=(',', ':')).encode('utf-8')
-    payload_b64 = base64.urlsafe_b64encode(payload_json).decode('utf-8').rstrip('=')
-    signature = hmac.new(secret_key.encode('utf-8'), payload_b64.encode('utf-8'), hashlib.sha256).digest()
-    sig_b64 = base64.urlsafe_b64encode(signature).decode('utf-8').rstrip('=')
-    return f"{payload_b64}.{sig_b64}"
 
 
 def user_to_dict(user):
@@ -94,7 +64,7 @@ def authenticate_user(email, password):
     Nghiệp vụ Đăng nhập:
     1. Tìm người dùng theo email.
     2. So khớp mật khẩu đã băm.
-    3. Cấp Token xác thực cho người dùng để gọi các API bảo vệ.
+    3. Trả về thông tin người dùng; tầng route chịu trách nhiệm cấp token.
     """
     if not email or not password:
         return False, "Vui lòng nhập email và mật khẩu."
@@ -115,11 +85,7 @@ def authenticate_user(email, password):
     if not matched:
         return False, "Email hoặc mật khẩu không chính xác."
 
-    # Sinh token xác thực
-    token = generate_token(user.user_id, user.role)
-
     return True, {
-        "token": token,
         "user": user_to_dict(user)
     }
 

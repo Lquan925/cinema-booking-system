@@ -1,5 +1,6 @@
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, current_app, request, jsonify, g
 from . import services
+from app.security import generate_token
 
 user_bp = Blueprint('users_management', __name__, url_prefix='/api')
 
@@ -47,11 +48,18 @@ def login():
             "message": result
         }), 401
 
+    user = result["user"]
+    token = generate_token(
+        user["user_id"],
+        user["role"],
+        current_app.config.get('SECRET_KEY', 'default-dev-key')
+    )
+
     return jsonify({
         "status": "success",
         "message": "Đăng nhập thành công!",
-        "token": result["token"],
-        "user": result["user"]
+        "token": token,
+        "user": user
     }), 200
 
 """Các API cần token xác thực"""

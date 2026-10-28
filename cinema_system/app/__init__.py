@@ -32,12 +32,14 @@ def create_app():
     from app.routes.Catalog_and_showtime.routes import catalog_bp
     from app.routes.Orders_and_payments.routes import orders_bp
     from app.routes.Reports_and_Analytics.routes import admin_bp
+    from app.docs import docs_bp
 
     app.register_blueprint(user_bp)
     app.register_blueprint(booking_bp)
     app.register_blueprint(catalog_bp)
     app.register_blueprint(orders_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(docs_bp)
 
     @app.route('/')
     def index():

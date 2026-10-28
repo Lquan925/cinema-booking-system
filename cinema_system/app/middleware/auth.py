@@ -30,6 +30,7 @@ PUBLIC_ENDPOINTS = [
     ('GET',  '/api/movies'),                # Xem danh sách phim
     ('GET',  '/api/cinemas'),               # Xem danh sách rạp
     ('GET',  '/api/showtimes'),             # Xem lịch chiếu
+    ('GET',  '/api/docs'),                  # Swagger UI & file OpenAPI spec
 ]
 
 # Các endpoint CHỈ DÀNH CHO ADMIN (method, path_prefix)
@@ -110,7 +111,7 @@ def _is_public_endpoint(method, path):
             if clean_path == clean_pub:
                 return True
             # Cho phép các sub-path công khai (ví dụ: /api/showtimes/1/seats, /api/movies/1)
-            if clean_pub in ['/api/movies', '/api/cinemas', '/api/showtimes'] and clean_path.startswith(clean_pub + '/'):
+            if clean_pub in ['/api/movies', '/api/cinemas', '/api/showtimes', '/api/docs'] and clean_path.startswith(clean_pub + '/'):
                 return True
     return False
 

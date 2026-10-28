@@ -1,7 +1,23 @@
-from app import db
-from app.models import Showtime, Room, Seat, Movie, Ticket, User
-from app.redis_client import get_redis_client
-import redis
+"""Nghiệp vụ đặt vé / giữ ghế.
+
+Tầng này chỉ giao tiếp với repository (MySQL + kho khóa ghế Redis)
+và raise domain exception; không import Flask, SQLAlchemy hay redis.
+"""
+from app.repositories import booking_repository, seat_lock_repository, user_repository
+from app.repositories.seat_lock_repository import SeatLockStoreError
+
+from .exceptions import (
+    BookingValidationError,
+    RoomNotFound,
+    SeatAlreadySold,
+    SeatLockConflict,
+    SeatLockForbidden,
+    SeatLockUnavailable,
+    SeatQuotaExceeded,
+    SeatsNotInRoom,
+    ShowtimeNotFound,
+    UserNotFound,
+)
 
 # Hằng số cấu hình mặc định
 DEFAULT_LOCK_TTL = 600       # 10 phút (600 giây)
@@ -13,49 +29,37 @@ def get_showtime_seats_service(showtime_id, current_user_id=None):
     Tải sơ đồ ghế của một suất chiếu:
     - Lấy thông tin phòng và toàn bộ ghế từ MySQL.
     - Lấy danh sách vé đã mua từ MySQL (status != 'cancelled').
-    - Kiểm tra trạng thái khóa tạm thời (realtime) từ Redis.
+    - Kiểm tra trạng thái khóa tạm thời (realtime) từ kho khóa Redis.
     """
-    showtime = db.session.get(Showtime, showtime_id)
+    showtime = booking_repository.get_showtime_by_id(showtime_id)
     if not showtime:
-        return {"error": "Suất chiếu không tồn tại", "status_code": 404}
+        raise ShowtimeNotFound("Suất chiếu không tồn tại")
 
-    room = db.session.get(Room, showtime.room_id)
+    room = booking_repository.get_room_by_id(showtime.room_id)
     if not room:
-        return {"error": "Phòng chiếu không tồn tại", "status_code": 404}
+        raise RoomNotFound("Phòng chiếu không tồn tại")
 
-    movie = db.session.get(Movie, showtime.movie_id)
+    movie = booking_repository.get_movie_by_id(showtime.movie_id)
     movie_title = movie.title if movie else ""
 
-    # Lấy tất cả ghế trong phòng, sắp xếp theo hàng và số ghế
-    seats = Seat.query.filter_by(room_id=room.room_id).order_by(
-        Seat.seat_row.asc(), Seat.seat_number.asc()
-    ).all()
+    seats = booking_repository.get_seats_by_room(room.room_id)
+    sold_seat_ids = booking_repository.get_ticket_seat_ids_by_showtime(showtime_id)
 
-    # Lấy danh sách ghế đã được bán trong MySQL
-    sold_tickets = Ticket.query.filter(
-        Ticket.showtime_id == showtime_id,
-        Ticket.status != 'cancelled'
-    ).all()
-    sold_seat_ids = {t.seat_id for t in sold_tickets}
-
-    # Truy vấn trạng thái ghế từ Redis
-    redis_client = get_redis_client()
-    lock_keys = [f"seat_lock:{showtime_id}:{seat.seat_id}" for seat in seats]
-    
-    lock_values = []
+    seat_ids = [seat.seat_id for seat in seats]
     try:
-        if lock_keys:
-            lock_values = redis_client.mget(lock_keys)
-    except (redis.exceptions.RedisError, Exception) as e:
-        # Nếu Redis gặp sự cố, log và xử lý an toàn
-        lock_values = [None] * len(seats)
+        holders = seat_lock_repository.get_holders(showtime_id, seat_ids)
+    except SeatLockStoreError:
+        # Redis sự cố: vẫn trả sơ đồ ghế, coi như không có khóa tạm thời
+        holders = {}
 
     seats_data = []
     available_count = 0
     locked_count = 0
     sold_count = len(sold_seat_ids)
 
-    for seat, lock_val, key in zip(seats, lock_values, lock_keys):
+    for seat in seats:
+        lock_val = holders.get(seat.seat_id)
+
         if seat.seat_id in sold_seat_ids:
             seat_status = "sold"
             locked_by = None
@@ -66,10 +70,8 @@ def get_showtime_seats_service(showtime_id, current_user_id=None):
             locked_by = int(lock_val) if str(lock_val).isdigit() else lock_val
             is_my_lock = bool(current_user_id and str(current_user_id) == str(lock_val))
             try:
-                ttl_left = redis_client.ttl(key)
-                if ttl_left and ttl_left < 0:
-                    ttl_left = None
-            except Exception:
+                ttl_left = seat_lock_repository.get_ttl(showtime_id, seat.seat_id)
+            except SeatLockStoreError:
                 ttl_left = None
             locked_count += 1
         else:
@@ -112,123 +114,98 @@ def get_showtime_seats_service(showtime_id, current_user_id=None):
                 "sold_seats": sold_count
             },
             "seats": seats_data
-        },
-        "status_code": 200
+        }
     }
 
 
 def lock_seat_service(user_id, showtime_id, seat_ids, ttl=DEFAULT_LOCK_TTL):
     """
     Khóa ghế tạm thời vào Redis (5 - 10 phút):
-    - Kiểm tra User và Showtime tồn tại trong MySQL.
+    - Kiểm tra User và Showtime tồn tại.
     - Kiểm tra các ghế có thuộc phòng chiếu của suất này không.
-    - Kiểm tra các ghế đã được bán chưa (bảng Tickets trong MySQL).
-    - Sử dụng Key 2 (user_locks:{user_id}:{showtime_id}) để giới hạn tối đa 6-8 ghế/user.
-    - Sử dụng Key 1 (seat_lock:{showtime_id}:{seat_id}) với SET ... NX EX để khóa nguyên tử.
-    - Rollback nếu một trong các ghế bị người khác chọn trước.
+    - Kiểm tra các ghế đã được bán chưa.
+    - Giới hạn số ghế một user được giữ cùng lúc.
+    - Khóa nguyên tử từng ghế, rollback nếu có ghế bị người khác giữ trước.
     """
     if not user_id:
-        return {"error": "Thiếu user_id", "status_code": 400}
+        raise BookingValidationError("Thiếu user_id")
     if not showtime_id:
-        return {"error": "Thiếu showtime_id", "status_code": 400}
+        raise BookingValidationError("Thiếu showtime_id")
     if not seat_ids or not isinstance(seat_ids, (list, set, tuple)):
-        return {"error": "Danh sách seat_ids không hợp lệ hoặc đang để trống", "status_code": 400}
+        raise BookingValidationError("Danh sách seat_ids không hợp lệ hoặc đang để trống")
 
     # Loại bỏ trùng lặp trong input
     seat_ids = list(dict.fromkeys(seat_ids))
 
-    # 1. Kiểm tra User tồn tại trong MySQL
-    user = db.session.get(User, user_id)
+    user = user_repository.get_by_id(user_id)
     if not user:
-        return {"error": f"Người dùng ID {user_id} không tồn tại", "status_code": 404}
+        raise UserNotFound(f"Người dùng ID {user_id} không tồn tại")
 
-    # 2. Kiểm tra Showtime tồn tại trong MySQL
-    showtime = db.session.get(Showtime, showtime_id)
+    showtime = booking_repository.get_showtime_by_id(showtime_id)
     if not showtime:
-        return {"error": f"Suất chiếu ID {showtime_id} không tồn tại", "status_code": 404}
+        raise ShowtimeNotFound(f"Suất chiếu ID {showtime_id} không tồn tại")
 
-    # 3. Kiểm tra các ghế có thuộc phòng chiếu của suất này không
-    valid_seats = Seat.query.filter(
-        Seat.seat_id.in_(seat_ids),
-        Seat.room_id == showtime.room_id
-    ).all()
+    valid_seats = booking_repository.get_seats_by_ids(seat_ids, room_id=showtime.room_id)
     if len(valid_seats) != len(seat_ids):
-        valid_seat_ids = {s.seat_id for s in valid_seats}
-        invalid_ids = [s for s in seat_ids if s not in valid_seat_ids]
-        return {
-            "error": f"Các ghế sau không thuộc phòng chiếu của suất này: {invalid_ids}",
-            "status_code": 400
-        }
+        valid_seat_ids = {seat.seat_id for seat in valid_seats}
+        invalid_ids = [seat_id for seat_id in seat_ids if seat_id not in valid_seat_ids]
+        raise SeatsNotInRoom(
+            f"Các ghế sau không thuộc phòng chiếu của suất này: {invalid_ids}",
+            invalid_seat_ids=invalid_ids,
+        )
 
-    # 4. Kiểm tra ghế đã bán trong MySQL chưa
-    sold_ticket = Ticket.query.filter(
-        Ticket.showtime_id == showtime_id,
-        Ticket.seat_id.in_(seat_ids),
-        Ticket.status != 'cancelled'
-    ).first()
+    sold_ticket = booking_repository.get_active_ticket_for_seats(showtime_id, seat_ids)
     if sold_ticket:
-        return {
-            "error": f"Ghế ID {sold_ticket.seat_id} đã được đặt mua trước đó, không thể giữ chỗ.",
-            "status_code": 400
-        }
+        raise SeatAlreadySold(
+            f"Ghế ID {sold_ticket.seat_id} đã được đặt mua trước đó, không thể giữ chỗ.",
+            seat_id=sold_ticket.seat_id,
+        )
 
-    redis_client = get_redis_client()
-    user_locks_key = f"user_locks:{user_id}:{showtime_id}"
-
-    # 5. Kiểm tra giới hạn ghế đang giữ của User (Key 2)
     try:
-        current_held_raw = redis_client.smembers(user_locks_key) or set()
-        # Đồng bộ hóa: kiểm tra xem các ghế trong set này còn thực sự bị lock không
+        current_held_raw = seat_lock_repository.get_user_locked_seats(user_id, showtime_id)
+
+        # Đồng bộ: chỉ giữ lại các ghế thực sự còn khóa thuộc về user này
         active_held = set()
-        for sid in current_held_raw:
-            lock_owner = redis_client.get(f"seat_lock:{showtime_id}:{sid}")
-            if lock_owner == str(user_id):
-                active_held.add(sid)
+        for seat_id in current_held_raw:
+            holder = seat_lock_repository.get_holder(showtime_id, seat_id)
+            if holder == str(user_id):
+                active_held.add(seat_id)
             else:
-                # Key 1 đã hết hạn, dọn dẹp khỏi set
-                redis_client.srem(user_locks_key, sid)
+                seat_lock_repository.remove_user_locked_seat(user_id, showtime_id, seat_id)
 
-        # Số ghế mới user muốn giữ thêm (không tính các ghế user vốn dĩ đang giữ)
-        new_seat_ids = [sid for sid in seat_ids if str(sid) not in active_held]
+        new_seat_ids = [seat_id for seat_id in seat_ids if str(seat_id) not in active_held]
         if len(active_held) + len(new_seat_ids) > MAX_SEATS_PER_USER:
-            return {
-                "error": f"Bạn chỉ được giữ tối đa {MAX_SEATS_PER_USER} ghế cùng lúc cho suất chiếu này. Hiện bạn đang giữ {len(active_held)} ghế.",
-                "status_code": 400
-            }
+            raise SeatQuotaExceeded(
+                f"Bạn chỉ được giữ tối đa {MAX_SEATS_PER_USER} ghế cùng lúc cho suất chiếu này. "
+                f"Hiện bạn đang giữ {len(active_held)} ghế."
+            )
 
-        # 6. Khóa từng ghế vào Redis bằng lệnh SET ... NX EX (Key 1)
         successfully_locked = []
-        for sid in seat_ids:
-            seat_lock_key = f"seat_lock:{showtime_id}:{sid}"
-            
-            # Nếu chính user này đang giữ ghế này rồi thì chỉ cần refresh TTL
-            if str(sid) in active_held:
-                redis_client.expire(seat_lock_key, ttl)
-                successfully_locked.append(sid)
+        for seat_id in seat_ids:
+            # Ghế user đang giữ rồi: chỉ gia hạn TTL
+            if str(seat_id) in active_held:
+                seat_lock_repository.refresh(showtime_id, seat_id, ttl)
+                successfully_locked.append(seat_id)
                 continue
 
-            # Sử dụng lệnh SET ... NX EX (nguyên tử)
-            acquired = redis_client.set(seat_lock_key, str(user_id), nx=True, ex=ttl)
-            if not acquired:
-                # Có người khác đã chọn ghế này trước!
-                # Thực hiện ROLLBACK các ghế vừa lock trong đợt này
-                for rolled_sid in successfully_locked:
-                    if str(rolled_sid) not in active_held:
-                        redis_client.delete(f"seat_lock:{showtime_id}:{rolled_sid}")
-                        redis_client.srem(user_locks_key, str(rolled_sid))
-                return {
-                    "error": f"Ghế ID {sid} đã có người khác chọn hoặc đang được giữ chỗ.",
-                    "status_code": 409
-                }
-            
-            successfully_locked.append(sid)
-            # Thêm vào Key 2 (Set các ghế user đang giữ)
-            redis_client.sadd(user_locks_key, str(sid))
+            if not seat_lock_repository.acquire(showtime_id, seat_id, user_id, ttl):
+                # Người khác đã giữ ghế này: rollback các ghế vừa khóa trong đợt này
+                for rolled_seat_id in successfully_locked:
+                    if str(rolled_seat_id) not in active_held:
+                        seat_lock_repository.release(showtime_id, rolled_seat_id)
+                        seat_lock_repository.remove_user_locked_seat(user_id, showtime_id, rolled_seat_id)
+                raise SeatLockConflict(
+                    f"Ghế ID {seat_id} đã có người khác chọn hoặc đang được giữ chỗ.",
+                    seat_id=seat_id,
+                )
 
-        # Cập nhật thời gian sống cho Key 2
-        redis_client.expire(user_locks_key, ttl)
+            successfully_locked.append(seat_id)
+            seat_lock_repository.add_user_locked_seat(user_id, showtime_id, seat_id)
 
-        all_user_seats = [int(s) for s in redis_client.smembers(user_locks_key)]
+        seat_lock_repository.expire_user_locks(user_id, showtime_id, ttl)
+
+        held_seats = seat_lock_repository.get_user_locked_seats(user_id, showtime_id)
+        all_user_seats = sorted(int(seat_id) for seat_id in held_seats)
 
         return {
             "status": "success",
@@ -239,30 +216,25 @@ def lock_seat_service(user_id, showtime_id, seat_ids, ttl=DEFAULT_LOCK_TTL):
                 "locked_seats": successfully_locked,
                 "expires_in_seconds": ttl,
                 "total_holding_seats": all_user_seats
-            },
-            "status_code": 200
+            }
         }
 
-    except redis.exceptions.RedisError as e:
-        return {
-            "error": "Lỗi kết nối dịch vụ Redis, không thể thực hiện giữ ghế lúc này.",
-            "status_code": 503
-        }
+    except SeatLockStoreError:
+        raise SeatLockUnavailable(
+            "Lỗi kết nối dịch vụ Redis, không thể thực hiện giữ ghế lúc này."
+        ) from None
 
 
 def unlock_seat_service(user_id, showtime_id, seat_ids=None):
     """
     Mở khóa ghế khi khách hủy hoặc hết giờ hoặc thanh toán xong:
     - Nếu có seat_ids: Mở khóa danh sách ghế được chỉ định (kiểm tra quyền sở hữu lock).
-    - Nếu seat_ids=None: Đọc từ Key 2 (user_locks:{user_id}:{showtime_id}) và mở khóa toàn bộ.
+    - Nếu seat_ids=None: Mở khóa toàn bộ ghế user đang giữ cho suất chiếu này.
     """
     if not user_id:
-        return {"error": "Thiếu user_id", "status_code": 400}
+        raise BookingValidationError("Thiếu user_id")
     if not showtime_id:
-        return {"error": "Thiếu showtime_id", "status_code": 400}
-
-    redis_client = get_redis_client()
-    user_locks_key = f"user_locks:{user_id}:{showtime_id}"
+        raise BookingValidationError("Thiếu showtime_id")
 
     try:
         unlocked_seats = []
@@ -272,43 +244,34 @@ def unlock_seat_service(user_id, showtime_id, seat_ids=None):
             if not isinstance(seat_ids, (list, set, tuple)):
                 seat_ids = [seat_ids]
 
-            for sid in seat_ids:
-                seat_lock_key = f"seat_lock:{showtime_id}:{sid}"
-                current_holder = redis_client.get(seat_lock_key)
+            for seat_id in seat_ids:
+                current_holder = seat_lock_repository.get_holder(showtime_id, seat_id)
 
                 if current_holder is None:
                     # Ghế đã tự hết hạn hoặc chưa bị khóa
-                    redis_client.srem(user_locks_key, str(sid))
-                    unlocked_seats.append(sid)
+                    seat_lock_repository.remove_user_locked_seat(user_id, showtime_id, seat_id)
+                    unlocked_seats.append(seat_id)
                 elif current_holder == str(user_id):
-                    # Xóa Key 1
-                    redis_client.delete(seat_lock_key)
-                    # Xóa khỏi Key 2
-                    redis_client.srem(user_locks_key, str(sid))
-                    unlocked_seats.append(sid)
+                    seat_lock_repository.release(showtime_id, seat_id)
+                    seat_lock_repository.remove_user_locked_seat(user_id, showtime_id, seat_id)
+                    unlocked_seats.append(seat_id)
                 else:
-                    # Ghế đang do người khác giữ, không được phép mở
-                    return {
-                        "error": f"Bạn không có quyền mở khóa ghế ID {sid} vì đang do người khác giữ.",
-                        "status_code": 403
-                    }
+                    raise SeatLockForbidden(
+                        f"Bạn không có quyền mở khóa ghế ID {seat_id} vì đang do người khác giữ."
+                    )
 
-            # Nếu tập hợp trống thì xóa luôn Key 2
-            if redis_client.scard(user_locks_key) == 0:
-                redis_client.delete(user_locks_key)
+            if seat_lock_repository.count_user_locks(user_id, showtime_id) == 0:
+                seat_lock_repository.delete_user_locks(user_id, showtime_id)
 
         else:
             # Mở khóa TẤT CẢ các ghế mà user đang giữ cho suất chiếu này
-            held_seats = redis_client.smembers(user_locks_key) or set()
-            for sid in held_seats:
-                seat_lock_key = f"seat_lock:{showtime_id}:{sid}"
-                current_holder = redis_client.get(seat_lock_key)
-                if current_holder == str(user_id):
-                    redis_client.delete(seat_lock_key)
-                unlocked_seats.append(int(sid) if str(sid).isdigit() else sid)
+            held_seats = seat_lock_repository.get_user_locked_seats(user_id, showtime_id)
+            for seat_id in held_seats:
+                if seat_lock_repository.get_holder(showtime_id, seat_id) == str(user_id):
+                    seat_lock_repository.release(showtime_id, seat_id)
+                unlocked_seats.append(int(seat_id) if str(seat_id).isdigit() else seat_id)
 
-            # Xóa Key 2
-            redis_client.delete(user_locks_key)
+            seat_lock_repository.delete_user_locks(user_id, showtime_id)
 
         return {
             "status": "success",
@@ -317,12 +280,10 @@ def unlock_seat_service(user_id, showtime_id, seat_ids=None):
                 "user_id": user_id,
                 "showtime_id": showtime_id,
                 "unlocked_seats": unlocked_seats
-            },
-            "status_code": 200
+            }
         }
 
-    except redis.exceptions.RedisError as e:
-        return {
-            "error": "Lỗi kết nối dịch vụ Redis, không thể mở khóa ghế lúc này.",
-            "status_code": 503
-        }
+    except SeatLockStoreError:
+        raise SeatLockUnavailable(
+            "Lỗi kết nối dịch vụ Redis, không thể mở khóa ghế lúc này."
+        ) from None

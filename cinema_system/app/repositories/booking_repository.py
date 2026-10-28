@@ -9,6 +9,8 @@ Services chỉ gọi các hàm ở đây, không truy cập db.session trực ti
 """
 from datetime import datetime, timedelta
 
+from sqlalchemy import func
+
 from app import db
 from app.models import Movie, Cinema, Room, Seat, Showtime, Ticket, Order
 
@@ -159,7 +161,17 @@ def get_seat_by_id(seat_id):
 
 def get_seats_by_room(room_id):
     """Lấy danh sách ghế trong 1 phòng chiếu"""
-    return Seat.query.filter_by(room_id=room_id).all()
+    return Seat.query.filter_by(room_id=room_id).order_by(
+        Seat.seat_row.asc(), Seat.seat_number.asc()
+    ).all()
+
+
+def get_seats_by_ids(seat_ids, room_id=None):
+    """Lấy các ghế theo danh sách ID, có thể giới hạn theo phòng chiếu"""
+    query = Seat.query.filter(Seat.seat_id.in_(seat_ids))
+    if room_id is not None:
+        query = query.filter(Seat.room_id == room_id)
+    return query.all()
 
 
 def get_seats_by_showtime(showtime_id):
@@ -206,6 +218,24 @@ def get_ticket_by_id(ticket_id):
 def get_tickets_by_ids(ticket_ids):
     """Lấy danh sách vé theo list ID"""
     return Ticket.query.filter(Ticket.ticket_id.in_(ticket_ids)).all()
+
+
+def get_ticket_seat_ids_by_showtime(showtime_id):
+    """Lấy tập seat_id đã có vé (không tính vé đã hủy) của một suất chiếu"""
+    rows = db.session.query(Ticket.seat_id).filter(
+        Ticket.showtime_id == showtime_id,
+        func.lower(func.coalesce(Ticket.status, '')) != 'cancelled',
+    ).all()
+    return {row[0] for row in rows}
+
+
+def get_active_ticket_for_seats(showtime_id, seat_ids):
+    """Tìm vé chưa hủy của các ghế trong một suất chiếu"""
+    return Ticket.query.filter(
+        Ticket.showtime_id == showtime_id,
+        Ticket.seat_id.in_(seat_ids),
+        func.lower(func.coalesce(Ticket.status, '')) != 'cancelled',
+    ).first()
 
 
 def get_tickets_by_order(order_id):
