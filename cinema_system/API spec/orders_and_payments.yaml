@@ -1,11 +1,29 @@
 openapi: 3.0.3
 info:
   title: Orders and Payments API
+  description: |
+    Tài liệu API cho module **Đơn hàng & Thanh toán** (Orders and Payments).
+
+    - Tạo đơn hàng từ danh sách vé đã chọn.
+    - Thanh toán đơn hàng bằng ví điện tử nội bộ.
+    - Tra cứu lịch sử đơn hàng của người dùng hiện tại.
+
+    Tất cả endpoint yêu cầu Bearer Token (đăng nhập bằng `/auth/login`).
   version: 1.0.0
+
+servers:
+  - url: /api
+    description: Base URL của hệ thống API
+
+tags:
+  - name: Orders & Payments
+    description: Quản lý đơn hàng và thanh toán qua ví
+
 paths:
   /orders:
     post:
       summary: Tạo đơn hàng mới
+      description: Tạo đơn hàng từ danh sách vé. Vé phải tồn tại trong hệ thống.
       tags:
         - Orders & Payments
       security:
@@ -21,23 +39,41 @@ paths:
               properties:
                 ticket_ids:
                   type: array
+                  minItems: 1
                   items:
                     type: integer
                   example: [1, 2]
+            example:
+              ticket_ids: [1, 2]
       responses:
         '201':
           description: Đơn hàng được tạo thành công
           content:
             application/json:
-              example:
-                message: "Order created successfully"
-                order_id: 10
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Order created successfully"
+                  order_id:
+                    type: integer
+                    example: 10
         '400':
-          description: Dữ liệu không hợp lệ hoặc vé không tồn tại
+          description: Thiếu ticket_ids hoặc vé không tồn tại
+          content:
+            application/json:
+              example:
+                message: "Vui lòng chọn ít nhất 1 vé!"
+        '401':
+          description: Thiếu hoặc sai token
 
   /payments/process/{order_id}:
     post:
       summary: Thanh toán đơn hàng qua ví
+      description: |
+        Trừ tiền ví của người dùng, cộng điểm tích lũy và cập nhật trạng thái
+        đơn hàng/vé. Yêu cầu ví có đủ số dư.
       tags:
         - Orders & Payments
       security:
@@ -47,8 +83,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
-          example: 10
+            type: string
+          example: "10"
       responses:
         '200':
           description: Thanh toán thành công
@@ -58,8 +94,29 @@ paths:
                 message: "Payment processed successfully"
         '400':
           description: Số dư ví không đủ
+          content:
+            application/json:
+              example:
+                message: "Insufficient balance"
+        '401':
+          description: Thiếu hoặc sai token
         '404':
-          description: Không tìm thấy đơn hàng
+          description: Không tìm thấy đơn hàng hoặc người dùng
+          content:
+            application/json:
+              examples:
+                order_not_found:
+                  value:
+                    message: "Order not found"
+                user_not_found:
+                  value:
+                    message: "User not found"
+        '500':
+          description: Lỗi khác trong quá trình thanh toán
+          content:
+            application/json:
+              example:
+                message: "Internal payment error"
 
   /orders/history:
     get:
@@ -70,15 +127,52 @@ paths:
         - BearerAuth: []
       responses:
         '200':
-          description: Danh sách đơn hàng
+          description: Danh sách đơn hàng của người dùng
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrderSummary'
+              example:
+                orders:
+                  - user_id: 1
+                    order_id: 10
+                    total_amount: 180000.0
+                    status: "success"
+        '401':
+          description: Thiếu hoặc sai token
+        '404':
+          description: Người dùng chưa có đơn hàng nào
           content:
             application/json:
               example:
-                orders:
-                  - order_id: 10
-                    total_amount: 180000.0
-                    status: "completed"
-                    created_at: "2026-10-11T19:30:00"
-                    tickets: []
-        '404':
-          description: Người dùng chưa có đơn hàng nào
+                message: "User has no orders"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Header: Authorization: Bearer <token>"
+
+  schemas:
+    OrderSummary:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          example: 1
+        order_id:
+          type: integer
+          example: 10
+        total_amount:
+          type: number
+          format: float
+          example: 180000.0
+        status:
+          type: string
+          example: "success"

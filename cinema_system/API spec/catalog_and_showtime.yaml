@@ -4,8 +4,8 @@ info:
   description: API quản lý Danh mục Phim, Cụm Rạp và Lịch Chiếu Phim (Catalog & Showtime Module)
   version: 1.0.0
 servers:
-  - url: http://localhost:5000/api
-    description: Local Development Server
+  - url: /api
+    description: Base URL của hệ thống API
 
 tags:
   - name: Catalog & Showtime
@@ -522,5 +522,4 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
       description: "Header Authorization: Bearer <token> (hoặc header x-access-token) cấp từ API Login"

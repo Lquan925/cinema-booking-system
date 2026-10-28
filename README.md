@@ -107,13 +107,17 @@ Client (Web / Mobile / Postman)
 cinema_system/
 ├── app/
 │   ├── __init__.py                # Khởi tạo Flask app, đăng ký Middleware & Blueprints
+│   ├── docs.py                    # Swagger UI tại /api/docs
 │   ├── models.py                  # Định nghĩa Models CSDL (SQLAlchemy)
 │   ├── redis_client.py            # Singleton kết nối Redis
+│   ├── security.py                # Sinh Bearer Token sau khi đăng nhập
 │   ├── middleware/
 │   │   └── auth.py                # Middleware xác thực & phân quyền tập trung
 │   ├── repositories/
-│   │   ├── booking_repository.py  # Xử lý truy vấn ghế, lịch chiếu & Redis lock
-│   │   └── user_repository.py     # Xử lý truy vấn người dùng
+│   │   ├── booking_repository.py       # Truy vấn ghế, lịch chiếu, vé, đơn hàng
+│   │   ├── seat_lock_repository.py     # Truy cập Redis (khóa/mở khóa ghế)
+│   │   ├── analytics_repository.py     # Truy vấn tổng hợp báo cáo
+│   │   └── user_repository.py          # Xử lý truy vấn người dùng
 │   └── routes/
 │       ├── User_management/       # APIs Đăng ký, Đăng nhập, Profile, Admin User
 │       ├── Catalog_and_showtime/  # APIs Phim, Rạp, Lịch chiếu
@@ -121,9 +125,11 @@ cinema_system/
 │       ├── Orders_and_payments/   # APIs Đơn hàng, Thanh toán, Lịch sử
 │       └── Reports_and_Analytics/ # APIs Báo cáo thống kê (Admin)
 ├── API spec/
+│   ├── user_management.yaml       # OpenAPI Spec: Người dùng & Xác thực
 │   ├── booking_and_seat.yaml      # OpenAPI Spec: Sơ đồ ghế & Khóa/Mở khóa ghế
 │   ├── orders_and_payments.yaml   # OpenAPI Spec: Đơn hàng & Thanh toán
-│   └── user_management.yaml       # OpenAPI Spec: Người dùng & Xác thực
+│   ├── catalog_and_showtime.yaml  # OpenAPI Spec: Phim, Rạp & Lịch chiếu
+│   └── reports_and_analytics.yaml # OpenAPI Spec: Báo cáo & Thống kê (Admin)
 ├── migrations/                    # File versioning CSDL qua Flask-Migrate
 ├── docker-compose.yml             # Cấu hình container MySQL, Redis, Adminer
 ├── requirements.txt               # Danh sách thư viện Python
@@ -192,6 +198,18 @@ python run.py
 ```
 Server sẽ chạy tại: **`http://127.0.0.1:5000`**
 
+### Bước 6: Mở tài liệu Swagger UI
+Sau khi server chạy, mở trình duyệt:
+
+* **Swagger UI:** **`http://127.0.0.1:5000/api/docs`**
+* Chọn module ở thanh trên cùng (User, Booking, Orders, Catalog, Reports).
+* Để gọi API bảo vệ: đăng nhập qua `POST /api/auth/login`, sao chép `token`,
+  bấm nút **Authorize** và dán token (không cần thêm chữ `Bearer`).
+* File OpenAPI gốc nằm trong thư mục `cinema_system/API spec/` và được phục vụ tại
+  `/api/docs/specs/<tên-file>.yaml`.
+
+> Swagger UI tải CSS/JS từ CDN jsDelivr nên cần kết nối Internet khi mở trang.
+
 ---
 
 ## 7. Danh sách API chính
@@ -212,9 +230,9 @@ Server sẽ chạy tại: **`http://127.0.0.1:5000`**
 | `GET` | `/api/movies` | Public | Xem danh sách phim đang chiếu |
 | `GET` | `/api/cinemas` | Public | Xem danh sách cụm rạp |
 | `GET` | `/api/showtimes` | Public | Lọc lịch chiếu (`?date=`, `?movie_id=`, `?cinema_id=`) |
-| `POST` | `/api/admin/movies` | Admin | Thêm phim mới |
-| `POST` | `/api/admin/showtimes`| Admin | Thêm lịch chiếu mới |
-| `DELETE`| `/api/admin/showtimes/<id>`| Admin | Xóa lịch chiếu chưa bán vé |
+| `POST` | `/api/movies` | Admin | Thêm phim mới |
+| `POST` | `/api/showtimes` | Admin | Thêm lịch chiếu mới |
+| `DELETE` | `/api/showtimes/<id>` | Admin | Xóa lịch chiếu chưa bán vé |
 
 ### 3. Đặt ghế & Khóa ghế Realtime (`/api`)
 | Phương thức | Đường dẫn | Quyền hạn | Mô tả |
@@ -229,6 +247,14 @@ Server sẽ chạy tại: **`http://127.0.0.1:5000`**
 | `POST` | `/api/orders` | Authenticated | Tạo đơn hàng từ danh sách vé đã giữ |
 | `POST` | `/api/payments/process/<order_id>` | Authenticated | Thanh toán đơn hàng bằng ví điện tử |
 | `GET` | `/api/orders/history` | Authenticated | Xem lịch sử đơn hàng và vé đã đặt |
+
+### 5. Báo cáo & Thống kê (`/api/admin/reports`)
+| Phương thức | Đường dẫn | Quyền hạn | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/admin/reports/revenue` | Admin | Doanh thu theo thời gian, rạp, phim |
+| `GET` | `/api/admin/reports/movies` | Admin | Top phim theo doanh thu & vé bán |
+| `GET` | `/api/admin/reports/overview` | Admin | Số liệu tổng quan dashboard |
+| `GET` | `/api/admin/reports/cinemas` | Admin | Hiệu suất kinh doanh theo rạp |
 
 ---
 

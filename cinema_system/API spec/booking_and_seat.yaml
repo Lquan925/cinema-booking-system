@@ -106,7 +106,7 @@ paths:
                     - seat_id: 1
                       seat_row: "A"
                       seat_number: 1
-                      seat_type: "standard"
+                      seat_type: "VIP"
                       price: 90000.0
                       status: "sold"
                       locked_by: null
@@ -141,12 +141,10 @@ paths:
                   summary: Showtime does not exist
                   value:
                     error: "Suất chiếu không tồn tại"
-                    status_code: 404
                 room_not_found:
                   summary: Auditorium room does not exist
                   value:
                     error: "Phòng chiếu không tồn tại"
-                    status_code: 404
 
   /booking/lock-seat:
     post:
@@ -269,7 +267,7 @@ paths:
             application/json:
               example:
                 status: "error"
-                message: "Vui lòng đăng nhập để thực hiện chức năng này!"
+                message: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
         '404':
           description: Referenced User or Showtime not found in database
           content:
@@ -393,7 +391,7 @@ paths:
             application/json:
               example:
                 status: "error"
-                message: "Vui lòng đăng nhập để thực hiện chức năng này!"
+                message: "Token xác thực không được cung cấp (Vui lòng gửi Header Authorization: Bearer <token>)!"
         '403':
           description: Forbidden - attempt to unlock a seat held by another user
           content:
@@ -504,9 +502,9 @@ components:
           type: string
           description: Physical classification of the seat
           enum:
-            - standard
+            - NORMAL
             - VIP
-            - couple
+            - COUPLE
           example: "VIP"
         price:
           type: number
@@ -600,7 +598,3 @@ components:
           type: string
           description: Error status indicator
           example: "error"
-        status_code:
-          type: integer
-          description: HTTP status code
-          example: 404

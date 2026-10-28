@@ -1,0 +1,469 @@
+openapi: 3.0.3
+info:
+  title: Reports and Analytics API
+  description: |
+    Tài liệu API cho module **Báo cáo & Phân tích** (Reports and Analytics).
+
+    Toàn bộ endpoint yêu cầu đăng nhập bằng tài khoản **Admin**.
+    Dữ liệu được tổng hợp từ các đơn hàng có trạng thái `success` và các vé chưa bị hủy.
+  version: 1.0.0
+
+servers:
+  - url: /api
+    description: Base URL của hệ thống API
+
+tags:
+  - name: Reports & Analytics
+    description: Báo cáo doanh thu, top phim, tổng quan và hiệu suất rạp (Admin)
+
+paths:
+  /admin/reports/revenue:
+    get:
+      summary: Báo cáo doanh thu
+      description: |
+        Tổng hợp doanh thu, số vé và số đơn hàng theo khoảng thời gian,
+        kèm phân tích theo ngày và theo rạp.
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          description: Ngày bắt đầu (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Ngày kết thúc (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+        - name: cinema_id
+          in: query
+          required: false
+          description: Lọc theo rạp
+          schema:
+            type: integer
+          example: 1
+        - name: movie_id
+          in: query
+          required: false
+          description: Lọc theo phim
+          schema:
+            type: integer
+          example: 1
+      responses:
+        '200':
+          description: Báo cáo doanh thu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    $ref: '#/components/schemas/RevenueReport'
+              example:
+                status: "success"
+                data:
+                  total_revenue: 1250000.0
+                  total_tickets_sold: 18
+                  total_orders: 7
+                  daily_breakdown:
+                    - date: "2026-10-25"
+                      revenue: 540000.0
+                      tickets_sold: 8
+                      orders_count: 3
+                  cinema_breakdown:
+                    - cinema_id: 1
+                      cinema_name: "Beta Cinemas Mỹ Đình"
+                      revenue: 1250000.0
+                      tickets_sold: 18
+        '400':
+          description: Tham số lọc không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                message: "Tham số 'start_date' không đúng định dạng YYYY-MM-DD!"
+        '401':
+          description: Thiếu hoặc sai token
+        '403':
+          description: Tài khoản không phải Admin
+
+  /admin/reports/movies:
+    get:
+      summary: Báo cáo hiệu suất phim (Top phim)
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+        - name: limit
+          in: query
+          required: false
+          description: Số lượng phim trả về (tối đa 100)
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+          example: 10
+      responses:
+        '200':
+          description: Danh sách phim kèm doanh thu và số vé bán
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  total:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MoviePerformance'
+              example:
+                status: "success"
+                total: 2
+                data:
+                  - movie_id: 1
+                    title: "Mai"
+                    poster_url: "https://dummyimage.com/600x800/000/fff&text=Mai"
+                    duration_minutes: 131
+                    age_rating: "18+"
+                    total_revenue: 780000.0
+                    total_tickets_sold: 12
+                    total_showtimes: 4
+        '400':
+          description: Tham số không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                message: "Tham số 'limit' phải là số nguyên dương lớn hơn 0!"
+        '401':
+          description: Thiếu hoặc sai token
+        '403':
+          description: Tài khoản không phải Admin
+
+  /admin/reports/overview:
+    get:
+      summary: Báo cáo tổng quan Dashboard
+      description: Tổng hợp doanh thu, vé bán, đơn hàng, khách hàng, phim, rạp và 5 đơn hàng gần nhất.
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Dữ liệu tổng quan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    $ref: '#/components/schemas/OverviewReport'
+              example:
+                status: "success"
+                data:
+                  total_revenue: 2450000.0
+                  total_tickets_sold: 36
+                  total_orders: 14
+                  total_customers: 4
+                  total_movies: 2
+                  total_cinemas: 1
+                  recent_orders:
+                    - order_id: 14
+                      user_id: 1
+                      customer_name: "Khách test An"
+                      total_amount: 140000.0
+                      status: "success"
+        '401':
+          description: Thiếu hoặc sai token
+        '403':
+          description: Tài khoản không phải Admin
+        '500':
+          description: Lỗi khi tổng hợp dữ liệu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                message: "Lỗi khi tạo báo cáo tổng quan: ..."
+
+  /admin/reports/cinemas:
+    get:
+      summary: Báo cáo hiệu suất theo rạp
+      tags:
+        - Reports & Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: end_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          example: "2026-10-31"
+      responses:
+        '200':
+          description: Hiệu suất kinh doanh theo từng rạp
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  total:
+                    type: integer
+                    example: 1
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CinemaPerformance'
+              example:
+                status: "success"
+                total: 1
+                data:
+                  - cinema_id: 1
+                    cinema_name: "Beta Cinemas Mỹ Đình"
+                    address: "Tầng hầm B1, tòa nhà Golden Palace, Hà Nội"
+                    total_rooms: 2
+                    total_showtimes: 6
+                    tickets_sold: 18
+                    revenue: 1250000.0
+        '400':
+          description: Tham số ngày không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                message: "Tham số 'end_date' không đúng định dạng YYYY-MM-DD!"
+        '401':
+          description: Thiếu hoặc sai token
+        '403':
+          description: Tài khoản không phải Admin
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Header: Authorization: Bearer <token_admin>"
+
+  schemas:
+    DailyRevenue:
+      type: object
+      properties:
+        date:
+          type: string
+          example: "2026-10-25"
+        revenue:
+          type: number
+          format: float
+          example: 540000.0
+        tickets_sold:
+          type: integer
+          example: 8
+        orders_count:
+          type: integer
+          example: 3
+
+    CinemaRevenue:
+      type: object
+      properties:
+        cinema_id:
+          type: integer
+          example: 1
+        cinema_name:
+          type: string
+          example: "Beta Cinemas Mỹ Đình"
+        revenue:
+          type: number
+          format: float
+          example: 1250000.0
+        tickets_sold:
+          type: integer
+          example: 18
+
+    RevenueReport:
+      type: object
+      properties:
+        total_revenue:
+          type: number
+          format: float
+          example: 1250000.0
+        total_tickets_sold:
+          type: integer
+          example: 18
+        total_orders:
+          type: integer
+          example: 7
+        daily_breakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyRevenue'
+        cinema_breakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/CinemaRevenue'
+
+    MoviePerformance:
+      type: object
+      properties:
+        movie_id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: "Mai"
+        poster_url:
+          type: string
+          nullable: true
+        duration_minutes:
+          type: integer
+          example: 131
+        age_rating:
+          type: string
+          nullable: true
+          example: "18+"
+        total_revenue:
+          type: number
+          format: float
+          example: 780000.0
+        total_tickets_sold:
+          type: integer
+          example: 12
+        total_showtimes:
+          type: integer
+          example: 4
+
+    RecentOrder:
+      type: object
+      properties:
+        order_id:
+          type: integer
+          example: 14
+        user_id:
+          type: integer
+          example: 1
+        customer_name:
+          type: string
+          example: "Khách test An"
+        total_amount:
+          type: number
+          format: float
+          example: 140000.0
+        status:
+          type: string
+          example: "success"
+
+    OverviewReport:
+      type: object
+      properties:
+        total_revenue:
+          type: number
+          format: float
+          example: 2450000.0
+        total_tickets_sold:
+          type: integer
+          example: 36
+        total_orders:
+          type: integer
+          example: 14
+        total_customers:
+          type: integer
+          example: 4
+        total_movies:
+          type: integer
+          example: 2
+        total_cinemas:
+          type: integer
+          example: 1
+        recent_orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecentOrder'
+
+    CinemaPerformance:
+      type: object
+      properties:
+        cinema_id:
+          type: integer
+          example: 1
+        cinema_name:
+          type: string
+          example: "Beta Cinemas Mỹ Đình"
+        address:
+          type: string
+          example: "Tầng hầm B1, tòa nhà Golden Palace, Hà Nội"
+        total_rooms:
+          type: integer
+          example: 2
+        total_showtimes:
+          type: integer
+          example: 6
+        tickets_sold:
+          type: integer
+          example: 18
+        revenue:
+          type: number
+          format: float
+          example: 1250000.0
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "error"
+        message:
+          type: string
+          example: "Tham số không hợp lệ!"
