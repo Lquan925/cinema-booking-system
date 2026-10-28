@@ -1,6 +1,5 @@
 """
-Kho lưu trữ người dùng (User Repository)
-=========================================
+Kho lưu trữ người dùng
 Chịu trách nhiệm toàn bộ thao tác CRUD với bảng Users.
 Services chỉ gọi các hàm ở đây, không truy cập db.session trực tiếp.
 """
@@ -122,3 +121,18 @@ def get_all(role=None, search=None, page=None, per_page=None):
 
     users = query.all()
     return users, len(users)
+
+
+def delete(user):
+    """
+    Xóa người dùng khỏi database.
+    Trả về (True, None) nếu thành công, (False, error_message) nếu thất bại.
+    """
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        return True, None
+    except Exception as e:
+        db.session.rollback()
+        return False, str(e)
+

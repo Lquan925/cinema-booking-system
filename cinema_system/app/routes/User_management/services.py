@@ -145,3 +145,16 @@ def create_staff_user(name, email, password, role='STAFF'):
         return False, f"Lỗi khi tạo tài khoản nhân viên: {err}"
 
     return True, user_to_dict(new_staff)
+
+
+def delete_user(user_id):
+    """Xóa tài khoản người dùng qua repository (Dành cho Admin)"""
+    user = user_repository.get_by_id(user_id)
+    if not user:
+        return False, "Không tìm thấy người dùng."
+
+    success, err = user_repository.delete(user)
+    if not success:
+        return False, f"Lỗi khi xóa người dùng: {err}"
+
+    return True, "Xóa tài khoản thành công."

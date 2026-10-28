@@ -347,6 +347,52 @@ paths:
                 status: "error"
                 message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
 
+  /admin/users/{userId}:
+    delete:
+      summary: Admin xóa tài khoản người dùng
+      description: Dành riêng cho quản trị viên xóa người dùng khỏi hệ thống.
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: ID của người dùng cần xóa
+          schema:
+            type: string
+          example: "U01"
+      responses:
+        '200':
+          description: Xóa tài khoản thành công
+          content:
+            application/json:
+              example:
+                status: "success"
+                message: "Xóa tài khoản thành công."
+        '401':
+          description: Thiếu Token hoặc Token không hợp lệ
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Token không hợp lệ hoặc đã hết hạn!"
+        '403':
+          description: Quyền truy cập bị từ chối (Tài khoản không phải Admin)
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Quyền truy cập bị từ chối. Chức năng chỉ dành cho Quản trị viên!"
+        '404':
+          description: Không tìm thấy người dùng
+          content:
+            application/json:
+              example:
+                status: "error"
+                message: "Không tìm thấy người dùng."
+
 components:
   securitySchemes:
     BearerAuth:
